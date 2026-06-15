@@ -2,6 +2,10 @@
 
 Use this reference when generating a black-and-white split-panel scrolling walkthrough.
 
+The default layout is pure CSS. Each story beat owns its visual. `position: sticky`
+pins that section's visual and releases it when the section ends. Do not use
+`IntersectionObserver` or scroll listeners for this default pattern.
+
 ## Page Structure
 
 Create one self-contained HTML file:
@@ -17,61 +21,48 @@ Create one self-contained HTML file:
   <style>/* inline CSS */</style>
 </head>
 <body>
-  <main class="shell">
-    <section class="copy-rail" aria-label="Walkthrough sections"></section>
-    <aside class="visual-rail" aria-label="Active visual">
-      <div class="visual-stage">
-        <div class="visual-meta"></div>
-        <div id="visual"></div>
-        <p id="caption"></p>
-      </div>
-    </aside>
+  <header class="intro">
+    <div class="kicker">Walkthrough</div>
+    <h1>Topic</h1>
+    <p>One-paragraph premise.</p>
+  </header>
+
+  <main>
+    <section class="scene">
+      <article class="copy">
+        <div class="kicker">01</div>
+        <h2>The first idea</h2>
+        <p>Concise explanation.</p>
+      </article>
+      <aside class="visual" aria-label="Visual for section 1">
+        <div class="visual-inner">
+          <pre class="mermaid">flowchart LR
+  a[Input] --> b[Output]</pre>
+          <p class="caption">Caption.</p>
+        </div>
+      </aside>
+    </section>
   </main>
-  <script>/* inline JS */</script>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true });
+  </script>
 </body>
 </html>
 ```
 
-## Data Model
+## Section Model
 
-Represent the walkthrough as data, then render the page from it:
+Plan 5-9 `.scene` sections. Each section contains:
 
-```js
-const WALKTHROUGH = {
-  title: "How Checkout Works",
-  premise: "A concise overview of the path from cart intent to durable order.",
-  sections: [
-    {
-      id: "intent",
-      kicker: "01",
-      title: "The user creates intent",
-      body: [
-        "The cart page turns selected items into a checkout intent.",
-        "At this point the system is still reversible: prices can change, inventory can fail, and payment has not started."
-      ],
-      visual: {
-        type: "mermaid",
-        caption: "The first handoff is from mutable cart state into a checkout session.",
-        source: `flowchart TD
-          cart[Cart] --> intent[Checkout Intent]
-          intent --> session[Payment Session]`
-      }
-    },
-    {
-      id: "review",
-      kicker: "02",
-      title: "Review locks the shape",
-      body: ["The review step validates totals, shipping, tax, and available inventory."],
-      visual: {
-        type: "image",
-        caption: "A product screenshot can replace a diagram when interface state matters.",
-        src: "./checkout-review.png",
-        alt: "Checkout review screen"
-      }
-    }
-  ]
-};
-```
+- `.copy`: section number, title, body text, optional source paths.
+- `.visual`: the right-side column.
+- `.visual-inner`: the sticky element. Put Mermaid, image, or callout content here.
+- `.caption`: one sentence explaining the visual.
+
+Use static HTML markup by default. A data model is acceptable for convenience, but
+do not introduce scroll-state JavaScript. The scroll behavior should come from
+the document structure and CSS sticky containment.
 
 ## Monochrome CSS
 
@@ -100,38 +91,13 @@ body {
   letter-spacing: 0;
 }
 
-.shell {
-  display: grid;
-  grid-template-columns: minmax(320px, 42vw) minmax(420px, 1fr);
-  min-height: 100vh;
-}
-
-.copy-rail {
-  border-right: 1px solid var(--line);
-  padding: clamp(28px, 5vw, 72px);
-}
-
-.visual-rail {
-  min-height: 100vh;
-  padding: clamp(20px, 4vw, 56px);
-}
-
-.visual-stage {
-  position: sticky;
-  top: clamp(16px, 4vh, 40px);
-  min-height: calc(100vh - 80px);
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 20px;
-  align-items: center;
-}
-
 .intro {
-  min-height: 70vh;
+  min-height: 78vh;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding-bottom: 20vh;
+  padding: clamp(28px, 5vw, 72px);
+  border-bottom: 1px solid var(--line);
 }
 
 .intro h1 {
@@ -143,26 +109,47 @@ body {
 }
 
 .intro p {
-  max-width: 38rem;
+  max-width: 42rem;
   margin: 24px 0 0;
   color: var(--muted);
   font-size: 1.05rem;
   line-height: 1.6;
 }
 
-.step {
-  min-height: 85vh;
+.scene {
+  min-height: 115vh;
+  display: grid;
+  grid-template-columns: minmax(320px, 42vw) minmax(420px, 1fr);
+  border-bottom: 1px solid var(--line);
+}
+
+.copy {
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 12vh 0;
-  border-top: 1px solid var(--line);
-  opacity: .38;
-  transition: opacity .2s ease;
+  padding: clamp(28px, 5vw, 72px);
 }
 
-.step.is-active { opacity: 1; }
-.kicker, .visual-meta {
+.visual {
+  min-height: 115vh;
+  border-left: 1px solid var(--line);
+  padding: clamp(20px, 4vw, 56px);
+}
+
+.visual-inner {
+  position: sticky;
+  top: clamp(16px, 4vh, 40px);
+  min-height: calc(100vh - 80px);
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 20px;
+  align-items: center;
+}
+
+.kicker,
+.caption,
+.sources-title {
   font-family: var(--mono);
   font-size: .78rem;
   text-transform: uppercase;
@@ -170,14 +157,14 @@ body {
   color: var(--muted);
 }
 
-.step h2 {
+.copy h2 {
   margin: 12px 0 18px;
   font-size: clamp(2rem, 4vw, 4.5rem);
   line-height: .98;
   letter-spacing: 0;
 }
 
-.step p {
+.copy p {
   max-width: 36rem;
   margin: 0 0 14px;
   color: #222222;
@@ -185,7 +172,9 @@ body {
   line-height: 1.65;
 }
 
-#visual {
+.mermaid,
+.image-frame,
+.typographic-callout {
   width: 100%;
   min-height: 440px;
   display: grid;
@@ -194,57 +183,76 @@ body {
   padding: clamp(18px, 4vw, 48px) 0;
 }
 
-#visual svg {
+.mermaid svg {
   max-width: 100%;
   height: auto;
 }
 
-#visual img {
+.image-frame img {
   max-width: 100%;
   max-height: 68vh;
   object-fit: contain;
   filter: grayscale(1);
 }
 
-#caption {
+.typographic-callout {
+  justify-items: start;
+  font-size: clamp(4rem, 10vw, 9rem);
+  line-height: .88;
+  font-weight: 760;
+}
+
+.caption {
   margin: 0;
-  color: var(--muted);
-  font-size: .9rem;
   line-height: 1.5;
 }
 
+.sources {
+  max-width: 38rem;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.sources li {
+  padding-top: 10px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: .78rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
 @media (max-width: 860px) {
-  .shell { display: block; }
-  .copy-rail {
-    border-right: 0;
-    padding: 24px;
-  }
-  .visual-rail {
-    position: sticky;
-    top: 0;
-    z-index: 5;
+  .intro { min-height: 70vh; padding: 24px; }
+  .scene {
+    display: flex;
+    flex-direction: column;
     min-height: auto;
-    padding: 14px 24px;
-    background: rgba(255,255,255,.96);
-    border-bottom: 1px solid var(--line);
   }
-  .visual-stage {
+  .copy {
+    min-height: auto;
+    padding: 56px 24px 28px;
+  }
+  .visual {
+    min-height: auto;
+    border-left: 0;
+    padding: 0 24px 56px;
+  }
+  .visual-inner {
     position: static;
     min-height: auto;
-    gap: 10px;
   }
-  #visual {
-    min-height: 220px;
-    max-height: 38vh;
-    overflow: hidden;
-    padding: 12px 0;
+  .mermaid,
+  .image-frame,
+  .typographic-callout {
+    min-height: 260px;
   }
-  .intro { min-height: 62vh; padding-bottom: 12vh; }
-  .step { min-height: 76vh; }
 }
 ```
 
-For a dark variant, invert the variables only. Keep the same monochrome restraint:
+For a dark variant, invert the variables only:
 
 ```css
 :root {
@@ -256,7 +264,7 @@ For a dark variant, invert the variables only. Keep the same monochrome restrain
   --soft: #111111;
   --ink: #ffffff;
 }
-.step p { color: #dddddd; }
+.copy p { color: #dddddd; }
 ```
 
 ## Mermaid Setup
@@ -265,7 +273,7 @@ Initialize Mermaid in monochrome. Avoid colored class definitions.
 
 ```js
 mermaid.initialize({
-  startOnLoad: false,
+  startOnLoad: true,
   securityLevel: "loose",
   theme: "base",
   themeVariables: {
@@ -287,94 +295,31 @@ mermaid.initialize({
 });
 ```
 
-For dark pages, switch Mermaid variables to black background, white text, white lines, and dark neutral cluster fills.
+For dark pages, switch Mermaid variables to black background, white text, white
+lines, and dark neutral cluster fills.
 
-## Rendering and Scroll State
+## Visual Patterns
 
-Use `IntersectionObserver` to choose the active section. Render the active visual into the sticky panel.
+Mermaid:
 
-```js
-const copyRail = document.querySelector(".copy-rail");
-const visualEl = document.querySelector("#visual");
-const captionEl = document.querySelector("#caption");
-const metaEl = document.querySelector(".visual-meta");
+```html
+<pre class="mermaid">flowchart LR
+  source[Source] --> system[System]
+  system --> evidence[Evidence]</pre>
+```
 
-function renderSections() {
-  copyRail.innerHTML = `
-    <header class="intro">
-      <div class="kicker">Walkthrough</div>
-      <h1>${escapeHtml(WALKTHROUGH.title)}</h1>
-      <p>${escapeHtml(WALKTHROUGH.premise)}</p>
-    </header>
-    ${WALKTHROUGH.sections.map((section, index) => `
-      <section class="step" data-step="${section.id}">
-        <div class="kicker">${section.kicker || String(index + 1).padStart(2, "0")}</div>
-        <h2>${escapeHtml(section.title)}</h2>
-        ${section.body.map(text => `<p>${escapeHtml(text)}</p>`).join("")}
-      </section>
-    `).join("")}
-  `;
-}
+Image:
 
-async function setActive(sectionId) {
-  const section = WALKTHROUGH.sections.find(item => item.id === sectionId) || WALKTHROUGH.sections[0];
-  document.querySelectorAll(".step").forEach(el => {
-    el.classList.toggle("is-active", el.dataset.step === section.id);
-  });
+```html
+<div class="image-frame">
+  <img src="./screenshot.png" alt="Checkout review screen" />
+</div>
+```
 
-  metaEl.textContent = `${section.kicker || ""} / ${section.title}`;
-  captionEl.textContent = section.visual.caption || "";
+Typographic callout:
 
-  if (section.visual.type === "image") {
-    visualEl.innerHTML = `<img src="${escapeAttr(section.visual.src)}" alt="${escapeAttr(section.visual.alt || section.title)}" />`;
-    return;
-  }
-
-  if (section.visual.type === "blank") {
-    visualEl.innerHTML = `<div class="typographic-callout">${escapeHtml(section.visual.text || section.title)}</div>`;
-    return;
-  }
-
-  const renderId = `diagram-${section.id}-${Date.now()}`;
-  try {
-    const { svg } = await mermaid.render(renderId, section.visual.source);
-    visualEl.innerHTML = svg;
-  } catch (error) {
-    visualEl.innerHTML = `<pre class="diagram-error">${escapeHtml(String(error))}</pre>`;
-  }
-}
-
-function observeSections() {
-  const observer = new IntersectionObserver((entries) => {
-    const visible = entries
-      .filter(entry => entry.isIntersecting)
-      .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-    if (visible) setActive(visible.target.dataset.step);
-  }, {
-    root: null,
-    threshold: [0.25, 0.45, 0.65],
-    rootMargin: "-18% 0px -35% 0px"
-  });
-
-  document.querySelectorAll(".step").forEach(step => observer.observe(step));
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function escapeAttr(value) {
-  return escapeHtml(value).replaceAll("`", "&#096;");
-}
-
-renderSections();
-setActive(WALKTHROUGH.sections[0].id);
-observeSections();
+```html
+<div class="typographic-callout">one path, one proof</div>
 ```
 
 ## Diagram Guidance
@@ -392,13 +337,24 @@ observeSections();
 - Use images when visual state matters more than structure.
 - Use `object-fit: contain`, max dimensions, and grayscale filtering.
 - Always provide alt text.
-- Prefer local relative paths for user-provided images copied into the project. Use remote URLs only when stable and already provided by the user.
+- Prefer local relative paths for user-provided images copied into the project.
+  Use remote URLs only when stable and already provided by the user.
+
+## When JavaScript Scroll State Is Acceptable
+
+Use `IntersectionObserver` only when the user explicitly asks for one persistent
+visual stage that changes content in place, custom transitions between visuals,
+progress bars tied to scroll thresholds, or other cross-section state. Otherwise,
+keep the walkthrough pure CSS with section-owned sticky visuals.
 
 ## Verification Checklist
 
-- Scroll through the whole file and confirm every section activates the correct visual.
-- Confirm the sticky right panel stays fixed on desktop.
-- Confirm mobile does not overlap text and visuals.
+- Scroll through the whole file and confirm each section's visual pins and then
+  releases when the section ends.
+- Confirm the next section's visual replaces the previous one through normal
+  document flow.
+- Confirm mobile stacks copy and visual without overlap.
 - Confirm all Mermaid diagrams render.
 - Confirm images load and remain inspectable.
+- Confirm there is no horizontal overflow.
 - Confirm the page still works if opened directly from disk.

@@ -1,4 +1,4 @@
 interface:
   display_name: "Walkthrough"
   short_description: "Monochrome scrolling visual walkthroughs"
-  default_prompt: "Use $walkthrough to create a black-and-white scrolling walkthrough with a sticky visual panel."
+  default_prompt: "Use $walkthrough to create a black-and-white scrolling walkthrough with pure-CSS sticky section visuals."
