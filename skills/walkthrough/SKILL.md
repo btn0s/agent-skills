@@ -1,89 +1,179 @@
 ---
 name: walkthrough
 description: >
-  Generate self-contained black-and-white typographic scrolling walkthrough HTML
-  files with pure-CSS section-owned sticky visuals: each section has left-side
-  narrative copy and a right-side Mermaid diagram, image, or typographic callout
-  that pins and releases with `position: sticky`. Use when Codex needs to create
-  an interactive explainer, codebase walkthrough, architecture narrative, process
-  story, product flow, onboarding page, or scrollytelling document, especially
-  when the user asks for "walkthrough", "walk me through", "explain this flow",
-  "show how this works", "sticky visual panel", "Mermaid diagrams",
-  "scroll-driven explainer", or explicitly invokes "$walkthrough".
+  Generate self-contained black-and-white guided reference HTML files for
+  codebases, systems, workflows, products, and technical topics. The output is a
+  detailed educational document with straightforward section titles,
+  subsections, source references, command lists, tables, and pure-CSS
+  section-owned sticky visuals. Use when Codex needs to create an onboarding
+  guide, codebase walkthrough, architecture reference, process guide, subsystem
+  map, or any artifact requested with "walkthrough", "walk me through",
+  "guided reference", "explain this repo", "explain this flow", "show how this
+  works", "Mermaid diagrams", or "$walkthrough".
 ---
 
 # Walkthrough
 
 ## Overview
 
-Create a self-contained HTML walkthrough that reads like a spare editorial essay: black text, white or black canvas, strong type hierarchy, and repeated split-screen sections where the left narrative scrolls while the section's right-side visual pins and releases with pure CSS.
+Create a self-contained HTML guided reference, not a marketing page and not a
+thin visual essay. The document should help a reader who does not already know
+the topic build a durable mental model: what the system is, where the important
+parts live, how the pieces connect, what vocabulary matters, what commands prove
+the behavior, and how to debug common questions.
 
-Always produce an HTML artifact when this skill is triggered. Prefer a working single file over a textual explanation of what could be built.
+Always produce an HTML artifact when this skill is triggered. Prefer one useful,
+portable file over a textual description of what could be built.
+
+## Required Output Shape
+
+The default artifact is a `walkthrough-{topic}.html` file with:
+
+- A clear title ending in "Guided Reference" when appropriate.
+- A one-paragraph premise that explains who the guide is for and how to read it.
+- A compact navigation row with numbered section links.
+- 5-9 major sections with straightforward titles, such as "System Overview",
+  "Runtime Reference", "Client Reference", or "Debugging Workflow".
+- Multiple `<h3>` subsections inside each major section. Do not make each
+  section a single broad essay.
+- Reference tables for files, concepts, contracts, responsibilities, or
+  evidence levels.
+- Command blocks for validation, local workflows, smoke tests, or inspection
+  commands when the topic has runnable commands.
+- Source paths or links when the guide explains a real codebase, document set,
+  or existing system.
+- One section-owned visual per major section: a Mermaid diagram, an image, or a
+  typographic callout.
+- A caption under every visual.
 
 ## Workflow
 
-### 1. Understand the story
+### 1. Inspect the real subject
 
-Identify the walkthrough subject:
+Identify what the user wants explained:
 
-- A codebase feature, architecture, lifecycle, or data flow
-- A product or user journey
-- A process, policy, technical concept, or onboarding guide
-- A visual essay assembled from provided text, Mermaid diagrams, or images
+- A codebase, subsystem, architecture, or data flow.
+- A product, user journey, operational process, or policy.
+- A technical concept that needs examples, vocabulary, and proof commands.
+- A collection of notes, diagrams, screenshots, or docs.
 
-If the request is code-related, inspect real files before generating the page. Use fast search first, then read the relevant source. If available and the topic is broad, split exploration across parallel agents and synthesize their results into the final story.
+For code-related requests, inspect real files before generating the page. Use
+fast search first, then read the relevant source, docs, tests, manifests, and
+local instruction files. For broad codebase walkthroughs, gather enough context
+to explain ownership boundaries, not just names of files.
 
-If the user invokes `$walkthrough` with no topic, create a project overview walkthrough from the current workspace.
+If the user invokes `$walkthrough` with no topic, create a project overview
+guided reference from the current workspace.
 
-### 2. Shape the sections
+### 2. Choose the reader's path
 
-Plan 5-9 scroll sections. Each section should have:
+Read [references/canonical-examples.md](references/canonical-examples.md)
+before planning the page. Use those examples as the standard for how concrete
+the output should be: specific section titles, real subsections, tables,
+commands, sources, and debugging questions.
 
-- A short title
-- Two to four concise paragraphs or bullets
-- One visual: Mermaid diagram, image, or intentionally blank typographic callout
-- A caption that explains the visual in one sentence
-- Optional source file paths or links when the walkthrough explains code
+Plan the guide as an onboarding path from basics to proof:
 
-Treat sections as story beats, not documentation pages. Each beat should advance the reader's mental model.
+1. Start with a system overview that defines the purpose, main loop, and core
+   vocabulary.
+2. Move through the main facets or lanes in a stable order.
+3. For each facet, explain purpose, important files, data flow, contracts,
+   commands, and debugging questions.
+4. End with an operational or debugging workflow that tells the reader what to
+   check first and how to prove a change worked.
 
-### 3. Build the visual model
+Use plain section names. Prefer "Game Packaging Reference" over clever titles,
+"Telemetry Reference" over mood-setting phrases, and "Debugging Workflow" over
+abstract slogans.
 
-Use Mermaid for systems, flow, state, lifecycle, and relationship visuals. Keep diagrams sparse: 4-10 nodes, plain labels, short edge verbs, and no decorative color classes. Use images when the user provides screenshots, product images, diagrams, or when a real visual explains the section better than a generated diagram.
+### 3. Write each section as a reference unit
 
-For codebase walkthroughs, each diagram node should represent a concept or responsibility rather than a raw function name.
+Each major section should usually include 4-9 subsections chosen from this set:
 
-### 4. Generate the HTML
+- Purpose
+- Main files and responsibilities
+- Data flow
+- Important terms
+- Required contract
+- Commands
+- Example workflow
+- Debugging questions
+- Validation checklist
+- Evidence levels
+- Fields worth learning
+- Common failure modes
 
-Read [references/html-patterns.md](references/html-patterns.md) before writing the file.
+Subsections should be skimmable. Use paragraphs for explanation, tables for
+mapping, ordered lists for workflows, and bullets for checks or questions. Avoid
+assuming the reader already understands project-specific acronyms.
 
-Write a single self-contained `walkthrough-{topic}.html` file in the project root, or in the requested destination. Use vanilla HTML/CSS/JavaScript plus Mermaid from a CDN unless the existing project clearly calls for another stack.
+### 4. Build visuals that teach structure
 
-### 5. Verify
+Use Mermaid for systems, flow, state, lifecycle, and relationship visuals. Keep
+diagrams sparse: 4-10 nodes, human-readable labels, short edge verbs, and no
+decorative color classes. For codebase walkthroughs, diagram nodes should
+represent concepts or responsibilities rather than raw function names.
+
+Use images when the user provides screenshots or when real visual state matters.
+Use typographic callouts only when a section's key rule is more important than a
+diagram.
+
+### 5. Generate the HTML
+
+Read [references/html-patterns.md](references/html-patterns.md) before writing
+the file. Use the canonical examples as content templates and the HTML pattern
+as the implementation template.
+
+Write a single self-contained `walkthrough-{topic}.html` file in the project
+root, or in the requested destination. Use vanilla HTML/CSS/JavaScript plus
+Mermaid from a CDN unless the existing project clearly calls for another stack.
+
+The page should use black, white, and neutral grays. The design should feel like
+a detailed technical document with a strong visual margin, not a splash page.
+
+### 6. Verify the artifact
 
 Open the generated HTML in a browser when possible. Check that:
 
-- Each section-owned right visual sticks on desktop and releases when its section ends
-- Mermaid diagrams render without syntax errors
-- Images load, fit, and include useful alt text
-- Text does not overlap or overflow at desktop and mobile widths
-- The mobile layout stacks the visual above or below the active text without breaking reading flow
+- The document has 5-9 major sections and meaningful subsections.
+- The section titles are straightforward and useful as a table of contents.
+- Tables, code paths, and command blocks do not overflow on mobile.
+- Each section-owned visual sticks on desktop and becomes static on mobile.
+- Mermaid diagrams render without syntax errors.
+- Images load, fit, and include useful alt text.
+- Text does not overlap or overflow at desktop and mobile widths.
+- The page has no browser console errors.
+- The page still works as a portable single file except for intentional CDN
+  Mermaid loading.
 
 ## Design Rules
 
-- Use only black, white, and neutral grays. Avoid colored accents, gradients, glows, shadows, and decorative blobs.
-- Let typography carry the design. Use one strong sans-serif stack and one monospace stack for code, labels, counters, and file paths.
-- Use one section per story beat. Put that section's copy and visual in the same parent so `position: sticky` handles pinning and release without scroll-state JavaScript.
-- Do not use `IntersectionObserver`, scroll listeners, or active-section JavaScript for the default layout. Use them only when the user explicitly needs one shared persistent visual surface with custom transitions or cross-section state.
-- Keep the interface quiet: thin rules, section numbers, compact captions, and lots of controlled whitespace.
-- Do not put the main layout inside cards. Use the full viewport and simple columns.
-- Do not make a marketing landing page. The walkthrough itself is the first screen.
+- Use only black, white, and neutral grays. Avoid colored accents, gradients,
+  glows, shadows, and decorative blobs.
+- Let typography, tables, rules, and spacing carry the design.
+- Use one section per reference facet. Put that section's copy and visual in the
+  same parent so `position: sticky` handles pinning and release without
+  scroll-state JavaScript.
+- Do not use `IntersectionObserver`, scroll listeners, or active-section
+  JavaScript for the default layout.
+- Do not make a landing page. The guide itself is the first screen.
+- Do not hide the useful material behind cards. Use full-width document flow
+  with a split reference/visual layout.
+- Use stable mobile rules for tables and code paths so long identifiers wrap
+  instead of creating horizontal overflow.
 
-## Output Requirements
+## Quality Bar
 
-- Include a clear title, a one-paragraph premise, and 5-9 sections.
-- Include section-owned sticky visuals on desktop.
-- Let normal document flow replace visuals as each section scrolls past.
-- Support both Mermaid diagrams and images in the same walkthrough.
-- Add section counters or compact captions inside each section.
-- Keep generated files portable: no build step, no framework install, no local server required unless the project requires one.
+A good walkthrough from this skill should answer:
+
+- What is this thing for?
+- What are the main parts?
+- Which files, commands, docs, APIs, or artifacts matter?
+- What vocabulary does a new reader need?
+- What facts or contracts cross subsystem boundaries?
+- What does healthy behavior look like?
+- What should I check first when something breaks?
+- What command or evidence proves this section is working?
+
+If the output only sounds polished but does not help someone operate or debug
+the subject, keep iterating before calling it done.

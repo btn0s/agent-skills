@@ -10,4 +10,4 @@ npx skills add btn0s/agent-skills --skill walkthrough
 
 ## Skills
 
-- `walkthrough`: Create black-and-white typographic scrolling walkthroughs with a left narrative panel and sticky Mermaid/image visuals on the right.
+- `walkthrough`: Create black-and-white guided reference HTML files with straightforward sections, subsections, tables, commands, source references, and sticky Mermaid/image visuals.
