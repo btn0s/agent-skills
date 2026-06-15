@@ -67,6 +67,11 @@ guided reference from the current workspace.
 
 ### 2. Choose the reader's path
 
+Read [references/canonical-examples.md](references/canonical-examples.md)
+before planning the page. Use those examples as the standard for how concrete
+the output should be: specific section titles, real subsections, tables,
+commands, sources, and debugging questions.
+
 Plan the guide as an onboarding path from basics to proof:
 
 1. Start with a system overview that defines the purpose, main loop, and core
@@ -116,7 +121,8 @@ diagram.
 ### 5. Generate the HTML
 
 Read [references/html-patterns.md](references/html-patterns.md) before writing
-the file.
+the file. Use the canonical examples as content templates and the HTML pattern
+as the implementation template.
 
 Write a single self-contained `walkthrough-{topic}.html` file in the project
 root, or in the requested destination. Use vanilla HTML/CSS/JavaScript plus
