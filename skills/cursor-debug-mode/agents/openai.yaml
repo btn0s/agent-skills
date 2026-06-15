@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cursor Debug Mode"
+  short_description: "Cursor-style hypothesis-driven debugging with runtime logs"
+  default_prompt: "Use $cursor-debug-mode. Treat this as Cursor Debug Mode: never fix from code alone, generate 3-5 hypotheses, instrument code with NDJSON logs via sink/log-debug.js, wait for reproduction, analyze logs, fix only with log evidence, verify before/after, then remove instrumentation."
