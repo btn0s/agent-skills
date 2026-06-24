@@ -1,4 +1,0 @@
-interface:
-  display_name: "Walkthrough"
-  short_description: "Monochrome guided reference HTML"
-  default_prompt: "Use $walkthrough to create a black-and-white guided reference HTML file with straightforward sections, subsections, tables, commands, and pure-CSS sticky visuals."
