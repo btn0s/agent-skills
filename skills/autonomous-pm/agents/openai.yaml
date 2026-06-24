@@ -1,0 +1,4 @@
+interface:
+  display_name: "Autonomous PM"
+  short_description: "Project PM loop with reviews and next plans"
+  default_prompt: "Use $autonomous-pm to keep this project moving: monitor active work, review evidence, steer agents, commit accepted work, and queue the next near-horizon plan."
