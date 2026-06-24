@@ -1,0 +1,4 @@
+interface:
+  display_name: "Setup Runtime Evidence Harness"
+  short_description: "Create agent rules for runtime-only acceptance"
+  default_prompt: "Use $setup-runtime-evidence-harness to add a runtime-evidence agent harness to this project."
