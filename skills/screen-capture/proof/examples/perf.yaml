@@ -1,0 +1,34 @@
+title: "Perf: dedupe() is now O(n)"
+subtitle: "perf/dedupe-set → main  ·  perf-demo"
+cwd: ~/dev/perf-demo
+prompt: ["bot@devbox", "~/perf-demo"]
+size: [96, 20]
+setup:
+  - git switch -q perf/dedupe-set
+beats:
+  - run: git diff -U1 main -- dedupe.py
+    caption: "The change: track seen items in a set."
+    say: "The change tracks seen items in a set, instead of scanning the output list."
+    callout: {find: "seen = set()", label: "O(1) lookups"}
+
+  - clear: true
+    run: python3 bench.py main perf/dedupe-set
+    caption: "Benchmark both branches on identical inputs."
+    say: "We benchmark both branches on the same inputs."
+    callout: {find: "\\d+x(?= *$)", regex: true, label: "at 16k items"}
+
+  - chart:
+      # data from bench.json, which the previous beat wrote for real
+      file: bench.json
+      kind: line
+      title: "dedupe() runtime vs. input size"
+      x_label: "input size (items)"
+      marks: [{series: perf/dedupe-set, x: 16000, label: "{ratio:.0f}× faster"}]
+    caption: "main grows quadratically; the set version stays flat."
+    say: "On main, runtime grows quadratically. The set version stays flat."
+
+  - clear: true
+    run: python3 -m unittest -q
+    caption: "Behavior unchanged: order-preserving tests pass."
+    say: "And behavior is unchanged. The order preserving tests still pass."
+    callout: {find: "OK", label: "3 / 3 tests pass"}
