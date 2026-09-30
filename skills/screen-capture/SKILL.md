@@ -9,6 +9,27 @@ description: >-
 
 # Screen capture: record → annotate → narrate
 
+## Setup (run once, and after every `skills update`)
+
+```sh
+~/.agents/skills/screen-capture/install.sh          # core + narration
+~/.agents/skills/screen-capture/install.sh --check  # what's there and what's missing; changes nothing
+```
+
+Run `--check` first in a new environment. If core is missing, it exits non-zero; run the installer before recording anything. The script is idempotent.
+
+| Needs | For | Installed by |
+| --- | --- | --- |
+| macOS on Apple Silicon, SF Mono (ships with Terminal.app) | everything | the OS |
+| `uv`, `~/.local/bin/proof`, the script's Python deps (ffmpeg is bundled) | `proof run` | `install.sh` |
+| mlx-audio 0.5.7 with `misaki[en]` on Python 3.12, plus the Kokoro and spaCy models (~350 MB) | narration, on by default | `install.sh` (skip with `--no-narrate`) |
+| Tailscale signed in, `dev.captures.serve` LaunchAgent, `tailscale serve /captures` | publishing links | `install.sh --publish`; Tailscale itself is installed and signed in by a person |
+| Cap.app and `~/.cap/bin/cap`, Screen Recording permission | `proof shot`, `proof clip`, the Cap pipeline | `install.sh --screen`; the permission is granted by a person in System Settings |
+| Maestro and JDK 21 | scripted iOS Simulator captures | `install.sh --maestro` |
+| `tsrct`, pinned version | full Tesseract edits | the tesseract-video skill's `references/installation.md` |
+
+The installer never uses `tailscale funnel`, never grants TCC permissions, and never changes network settings. Without `--publish`, render with `proof run --no-publish`.
+
 ## Fast path: `proof` (use this first)
 
 For PR proofs, choose the lowest tier that proves the change. One spec file becomes one command,
@@ -157,10 +178,9 @@ replacement for them.
 ## 0. Preflight
 
 ```sh
+~/.agents/skills/screen-capture/install.sh --check
 export PATH="$HOME/.local/bin:$HOME/.cap/bin:$PATH"
 cap doctor --json          # need permissions.screenRecording == "granted" and captureReady
-mlx_audio.tts.generate --help >/dev/null && echo tts-ok
-TSRCT="$HOME/Library/Application Support/Tesseract/bin/tsrct"; "$TSRCT" --version
 ```
 
 - **Screen Recording permission** belongs to the *responsible process*. Over SSH or Tailscale SSH, that's
@@ -170,7 +190,6 @@ TSRCT="$HOME/Library/Application Support/Tesseract/bin/tsrct"; "$TSRCT" --versio
   `cap record status`, not `cap doctor`. Never try to bypass TCC.
 - If `tsrct` is missing or its version doesn't match `tesseract-video/references/cli-version.txt`, follow
   `tesseract-video/references/installation.md`. Don't substitute another version.
-- The first Kokoro run downloads about 350 MB (the model plus a spaCy English model) into `~/.cache/huggingface`.
 
 Keep each capture in its own folder, for example `~/dev/captures/<slug>/`, containing `raw/`, `audio/`,
 `stills/` and `out/`.

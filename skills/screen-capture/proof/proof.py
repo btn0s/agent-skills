@@ -25,9 +25,11 @@ from PIL import Image, ImageDraw, ImageFont
 HERE = os.path.dirname(os.path.abspath(__file__))
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 BUCKET = os.path.expanduser("~/dev/captures/public")
-TAILSCALE = "/usr/local/bin/tailscale"
+TAILSCALE = shutil.which("tailscale") or next(
+    (p for p in ("/usr/local/bin/tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale") if os.path.exists(p)),
+    "tailscale")
 CAP = os.path.expanduser("~/.cap/bin/cap")
-TTS_PY = os.path.expanduser("~/.local/share/uv/tools/mlx-audio/bin/python")
+TTS_PY = os.environ.get("PROOF_TTS_PY") or os.path.expanduser("~/.local/share/uv/tools/mlx-audio/bin/python")
 CACHE = os.path.expanduser("~/.cache/proof")
 
 W, H, FPS = 1920, 1080, 30
@@ -1191,8 +1193,8 @@ def cmd_run(a):
     raw = a.raw or spec.get("tier") == 1
     narrate = not (a.no_narrate or spec.get("narrate", True) is False or raw)
     if narrate and not os.path.exists(TTS_PY):
-        raise SystemExit("proof narrates by default, but Kokoro isn't installed: "
-                         "uv tool install mlx-audio (or pass --no-narrate / set narrate: false)")
+        raise SystemExit(f"proof narrates by default, but Kokoro isn't installed: run "
+                         f"{os.path.join(os.path.dirname(HERE), 'install.sh')} (or pass --no-narrate)")
     slug = a.slug or spec.get("slug") or re.sub(r"[^a-z0-9]+", "-", spec.get("title", "proof").lower()).strip("-")[:48]
     workdir = os.path.abspath(a.out or os.path.join(os.path.dirname(spec_path), "proof-out", slug))
     os.makedirs(workdir, exist_ok=True)

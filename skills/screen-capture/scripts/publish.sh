@@ -11,7 +11,7 @@ dest="$bucket/$(date +%Y-%m-%d)-$slug"
 mkdir -p "$dest"
 cp "$file" "$dest/$name"
 
-TS=/usr/local/bin/tailscale
+TS=$(command -v tailscale || { [ -x /usr/local/bin/tailscale ] && echo /usr/local/bin/tailscale; } || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)
 host=$("$TS" status --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')
 # Self-heal: file server and serve mount (both are idempotent).
 curl -fsS -o /dev/null http://127.0.0.1:8740/ 2>/dev/null ||
