@@ -43,6 +43,12 @@ tailscale_bin() {
         [ -x "$p" ] && { echo "$p"; return; }; done; }
 }
 
+step "Proof skills"
+for sk in proof-write proof-capture proof-present; do
+  [ -f "$(dirname "$self")/$sk/SKILL.md" ] && ok "$sk" ||
+    miss "$sk" "npx skills add btn0s/agent-skills --skill $sk -g -y"
+done
+
 step "Host"
 [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] && ok "macOS arm64" "$(sw_vers -productVersion)" ||
   { miss "macOS arm64" "proof needs macOS on Apple Silicon"; exit 1; }

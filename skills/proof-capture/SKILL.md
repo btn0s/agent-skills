@@ -11,7 +11,7 @@ description: >-
 
 Capture only what the script needs. Every beat in `proof.yaml` points at something real: a command that runs, a JSON file taken from the source, or a recording. Nothing is mocked up to look like evidence.
 
-Setup lives in proof-present. Run `~/.agents/skills/proof-present/install.sh --check` first, add `--screen` for Cap and `--maestro` for Simulator flows.
+Setup lives in proof-setup. Run `~/.agents/skills/proof-setup/install.sh --check` first, add `--screen` for Cap and `--maestro` for Simulator flows.
 
 Pick the lightest source that proves the point:
 

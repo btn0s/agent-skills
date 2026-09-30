@@ -11,26 +11,9 @@ description: >-
 
 The script (story, agenda, `say:` lines) comes from **proof-write**. The raw material (recordings, trace JSON) comes from **proof-capture**. This skill turns them into one video and a link.
 
-## Setup (run once, and after every `skills update`)
+## Setup
 
-```sh
-~/.agents/skills/proof-present/install.sh          # core + narration
-~/.agents/skills/proof-present/install.sh --check  # what's there and what's missing; changes nothing
-```
-
-Run `--check` first in a new environment. If core is missing, it exits non-zero; run the installer before recording anything. The script is idempotent.
-
-| Needs | For | Installed by |
-| --- | --- | --- |
-| macOS on Apple Silicon, SF Mono (ships with Terminal.app) | everything | the OS |
-| `uv`, `~/.local/bin/proof`, the script's Python deps (ffmpeg is bundled) | `proof run` | `install.sh` |
-| mlx-audio 0.5.7 with `misaki[en]` on Python 3.12, plus the Kokoro and spaCy models (~350 MB) | narration, on by default | `install.sh` (skip with `--no-narrate`) |
-| Tailscale signed in, `dev.captures.serve` LaunchAgent, `tailscale serve /captures` | publishing links | `install.sh --publish`; Tailscale itself is installed and signed in by a person |
-| Cap.app and `~/.cap/bin/cap`, Screen Recording permission | `proof shot`, `proof clip`, the Cap pipeline | `install.sh --screen`; the permission is granted by a person in System Settings |
-| Maestro and JDK 21 | scripted iOS Simulator captures | `install.sh --maestro` |
-| `tsrct`, pinned version | full Tesseract edits | the tesseract-video skill's `references/installation.md` |
-
-The installer never uses `tailscale funnel`, never grants TCC permissions, and never changes network settings. Without `--publish`, render with `proof run --no-publish`.
+Run `~/.agents/skills/proof-setup/install.sh --check` first. The proof-setup skill has the details.
 
 ## Fast path: `proof` (use this first)
 
@@ -117,7 +100,7 @@ media: {rotate: ccw}                    # defaults for every image/video beat
 `{ratio}` means the first series divided by the marked one at that x, so labels track the real numbers.
 Terminal callouts accept `regex: true` for dynamic text, for example `find: "\\d+x(?= *$)"`.
 Chart titles get the unit appended, e.g. "runtime vs. size (ms)". The line under the title is `source:`, which defaults to "Measured on <host>, <date>"; set it to the real conditions, for example `source: "M4 Pro · Python 3.13 · best of 3"`.
-There is a full example in `proof/examples/perf.yaml`, and `mkperf.sh` rebuilds its demo repo.
+There is a full example in `~/.agents/skills/proof-setup/proof/examples/perf.yaml`, and `mkperf.sh` rebuilds its demo repo.
 
 Default look (keep it this way unless the user asks). It follows the btn0s/desktop and katana proof charts plus the dataviz tokens:
 - Flat page `#111110`: no window chrome, traffic lights, step counters, eyebrows or outro card. The title card is opt-in (`title_card: true`), because the PR heading already carries the title.
@@ -162,9 +145,8 @@ Where a video goes:
 Tips:
 - Keep output short so the terminal crops small and the text renders large. Pipe noisy commands through `grep` or `tail`.
 - Put `git switch` and other state setup in `setup:` or at the start of a beat. The recording is real, so the repo must actually be in the demonstrated state.
-- Example specs are in `proof/examples/` (copy them to `~/dev/proof-specs/`); `mkdemo.sh` rebuilds the demo repo.
-- The tool is at `proof/proof.py` (PEP 723 uv script) and runs through the `proof` wrapper. Install it once with
-  `ln -sf <this skill dir>/proof/bin/proof ~/.local/bin/proof` (it needs `uv` on PATH).
+- Example specs are in `~/.agents/skills/proof-setup/proof/examples/` (copy them to `~/dev/proof-specs/`); `mkdemo.sh` rebuilds the demo repo.
+- The tool is `~/.agents/skills/proof-setup/proof/proof.py` (PEP 723 uv script), run through the `proof` wrapper that proof-setup links onto PATH.
 
 
 ## Full edit: Cap → Kokoro → Tesseract
@@ -174,7 +156,7 @@ For marketing-grade demos that `proof` can't express. Three local tools, one pip
 | Stage | Tool | Skill with the details |
 | --- | --- | --- |
 | Record | `cap` (Cap Desktop CLI) | proof-capture, and `cap guide --json` |
-| Narrate | Kokoro-82M via `mlx_audio.tts.generate` | this skill, `scripts/narrate.py` |
+| Narrate | Kokoro-82M via `mlx_audio.tts.generate` | `~/.agents/skills/proof-setup/scripts/narrate.py` |
 | Annotate + edit + export | `tsrct` (Tesseract) | `tesseract-video`, `tesseract-motion` |
 
 Read the linked skills before running their commands. This file is the order of operations, not a
@@ -203,7 +185,7 @@ Record with Cap as described in proof-capture, and export to `raw/take1.mp4`.
 ### 3. Narrate with Kokoro
 
 ```sh
-python3 ~/.agents/skills/proof-present/scripts/narrate.py script.txt audio/ \
+python3 ~/.agents/skills/proof-setup/scripts/narrate.py script.txt audio/ \
   --voice af_heart --speed 1.0
 ```
 
@@ -254,7 +236,7 @@ lower thirds, and zoom and pan). In outline:
   output. For long wrapped lines, put an inline tag at the end of the row.
 - **Build the edit from a script.** Commit the media layers (video, image and audio segments) through
   `checkout`/`commit`, keep a copy of that `.tsrct`, and then `apply` one generated action batch of rects,
-  text, groups and opacity keyframes. To iterate, restore the copy and re-apply. `scripts/build_edit_example.py`
+  text, groups and opacity keyframes. To iterate, restore the copy and re-apply. `~/.agents/skills/proof-setup/scripts/build_edit_example.py`
   is the generator used for the pipeline demo; adapt its segment table and callouts.
 - **Verify the file itself:** check it with ffprobe, transcribe the exported audio with `whisper-cli`
   (every scripted line present, at the right time), and make an ffmpeg contact sheet of the MP4.
@@ -264,11 +246,11 @@ lower thirds, and zoom and pan). In outline:
 Always finish by publishing the final MP4 to the tailnet captures bucket and returning its link:
 
 ```sh
-~/.agents/skills/proof-present/scripts/publish.sh out/final.mp4 <slug>
+~/.agents/skills/proof-setup/scripts/publish.sh out/final.mp4 <slug>
 # -> https://<host>.<tailnet>.ts.net/captures/<YYYY-MM-DD>-<slug>/final.mp4
 ```
 
-- The bucket is `~/dev/captures/public/`. `scripts/serve_captures.py` serves it on `127.0.0.1:8740`, with Range
+- The bucket is `~/dev/captures/public/`. `~/.agents/skills/proof-setup/scripts/serve_captures.py` serves it on `127.0.0.1:8740`, with Range
   support so Safari can play and seek. The LaunchAgent `dev.captures.serve` keeps the server running, and
   `tailscale serve --bg --set-path /captures http://127.0.0.1:8740` mounts it. The mount persists and is
   **tailnet-only**. `publish.sh` checks both and repairs them if needed.
