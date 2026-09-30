@@ -81,6 +81,8 @@ Simulator recordings are always in panel orientation, so a landscape run comes o
 
 Walkthroughs (a PR told as a story, not a single clip) use a few more pieces. Write the script with the proof-write skill; this section only covers the syntax.
 
+- Subtitles are on whenever there's narration. The sentence being spoken appears centred at the bottom, one line at a time, and everything else moves up to make room. They're skipped where the caption already shows the same words. `proof.vtt` has the same text as a subtitle file. Turn them off only when asked, with `subtitles: false` or `--no-subtitles`.
+- `pronounce: {written: spoken}` respells words for the voice only, while subtitles keep the written form, e.g. `"PR #446": pull request four forty-six`. Put project-wide terms in `proof.config.yaml`. Quote any YAML line containing ` #`, or YAML treats the rest as a comment.
 - `say:` can be a list of sentences. Each one is voiced separately, and the lines on a card, the steps in a flow and the bars of a timeline appear as their sentence starts, so the screen never runs ahead of the voice.
 - `card:` is a plain text page: `{title, body}`, where body is a string or a list of lines. With a `say:` list, line k appears on sentence k, and any extra leading sentences belong to the title. Cards ignore `heading`/`caption`.
 - `card: {title, agenda: true}` lists every chapter name in order. On a chapter's own opener, that chapter is lit and the others are dimmed.

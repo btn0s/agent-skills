@@ -29,6 +29,7 @@ Open each chapter with its agenda card lit (`card: {agenda: true}` with `chapter
 - **Plain English.** Write short sentences in the active voice, with words a new teammate would use. Say "the stream target is locked in", not "identity selection completes". Keep code names and PR numbers out of the voice and in the source line, unless the viewer needs them.
 - **One fact per beat.** The heading states the fact ("The game was drawing by 13 s"), the caption adds one supporting detail, and the voice says both in sentence form. Don't stack three numbers on one screen.
 - **Don't misrepresent.** Every number traces back to the source file. Round the same way everywhere (for example 42.749 becomes 42.7 on screen and "about 43" in speech, never "40"). Say "one sample each" when it is. If the fix removed a wait rather than making something faster, say that.
+- **Write lines the way they should read.** Subtitles show every spoken sentence, so use digits, symbols and real names ("43 seconds", "PR #446"). When the voice gets a word wrong, add it to `pronounce:` rather than respelling the line.
 - **Match the screen and the voice.** A number spoken aloud is the number on screen, and a stage named aloud uses the same name as its row label.
 
 ## Before rendering

@@ -61,6 +61,7 @@ ANSI = {
 }
 MARGIN = 120                # one outer margin for terminal, chart and caption
 CAP_BAND = 150              # reserved under the content for a caption line
+SUB_BAND = 0                # set to 56 when subtitles are on: one line under everything else
 
 def log(*a):
     print("[proof]", *a, file=sys.stderr, flush=True)
@@ -101,6 +102,7 @@ class Beat:
     card: dict = None
     flow: dict = None
     marks: list = field(default_factory=list)  # seconds after start when each spoken sentence begins
+    subs: list = field(default_factory=list)   # (on, off, text) per spoken sentence, seconds after start
 
     def at(self, k):
         """When sentence k starts (reveals keyed to narration); past the last sentence, the beat's end."""
@@ -765,7 +767,7 @@ class Layout:
         self.f, self.fb = font("mono", size), font("mono-bold", size)
         self.cx = MARGIN
         self.cy = MARGIN + max(0, (max_h - rows * lh) // 2)
-        self.cap_y = H - MARGIN - 20
+        self.cap_y = H - MARGIN - 20 - SUB_BAND
 
     def cell(self, row, col):
         return self.cx + col * self.cw, self.cy + row * self.lh
@@ -793,6 +795,7 @@ class Renderer:
         self.t_term0, self.t_term1, self.raw, self.title_card = t_term0, t_term1, raw, title_card
         self.snap_t = [s.t for s in snaps]
         self.f_cap = font("Medium", 17 * U)
+        self.f_sub = font("Medium", 15 * U)
         self.f_head = font("SemiBold", 19 * U)
         self.f_head_big = font("SemiBold", 40 * U)
         self.f_label = font("Medium", max(16, round(L.size * 0.82)))
@@ -1071,7 +1074,19 @@ class Renderer:
         if i and t - b.start < XFADE and (b.media or b.card or b.flow or self.beats[i - 1].kind != b.kind):
             prev = self.scene(self.beats[i - 1], b.start - 1e-3)  # crossfade between scenes
             im = Image.blend(prev, im, (t - b.start) / XFADE)
-        return self.overlays(im, t)
+        return self.subtitle(self.overlays(im, t), b, t)
+
+    def subtitle(self, im, b, t):
+        """The sentence being spoken, centred in the bottom margin. Kokoro mispronounces names and jargon,
+        so the words are always on screen. Skipped when the caption already shows the same words."""
+        if not self.spec.get("_subtitles") or b is None:
+            return im
+        for on, off, line in sub_cues(b, self.f_sub):
+            if b.start + on <= t < b.start + off:
+                d = ImageDraw.Draw(im)
+                d.text(((W - self.f_sub.getlength(line)) / 2, H - 48 - self.f_sub.size), line, font=self.f_sub, fill=INK2)
+                break
+        return im
 
 
 def fit_size(spec, snaps):
@@ -1144,6 +1159,8 @@ def render_video(R, beats, total, has_title, has_outro, workdir, audio):
         if b.timeline:
             times |= {b.start + k / FPS for k in range(int(b.timeline["draw"] * FPS) + 2)}
             times |= {b.done - 0.05 + k / FPS for k in range(int(0.45 * FPS) + 2)}
+        for on, off, _ in sub_cues(b, R.f_sub):
+            times |= {b.start + on, b.start + off}
         for m in b.marks:  # reveals keyed to sentences
             times |= {b.start + m + k / FPS for k in range(int(0.3 * FPS) + 2)}
         if i and (b.media or b.card or b.flow or beats[i - 1].kind != b.kind):
@@ -1258,6 +1275,37 @@ def probe_duration(path):
     return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else 0.0
 
 
+def pronounce(text, table):
+    """Respell words for the voice only; subtitles keep the written form. Longest keys first, whole words."""
+    for k in sorted(table, key=len, reverse=True):
+        text = re.sub(rf"(?<!\w){re.escape(k)}(?!\w)", str(table[k]), text)
+    return text
+
+
+def sub_cues(b, f):
+    """One line per cue: a sentence too long for one line is split at line breaks, timed by length."""
+    if b.spec.get("caption") and len(b.subs) == 1 and b.subs[0][2].strip() == b.spec["caption"].strip():
+        return []  # the caption already shows these words
+    out = []
+    for on, off, text in b.subs:
+        lines = wrap(text, f, W - 2 * MARGIN)
+        n = sum(len(x) for x in lines)
+        t = on
+        for line in lines:
+            dt_ = (off - on) * len(line) / n
+            out.append((t, t + dt_ + (0.25 if line is lines[-1] else 0), line))
+            t += dt_
+    return out
+
+
+def write_vtt(beats, path):
+    """The burned-in subtitles as WebVTT too, for players that can switch them."""
+    ts = lambda x: f"{int(x // 3600):02d}:{int(x % 3600 // 60):02d}:{x % 60:06.3f}"
+    cues = [(b.start + on, b.start + off + 0.25, text) for b in beats for on, off, text in b.subs]  # whole sentences
+    with open(path, "w") as f:
+        f.write("WEBVTT\n\n" + "".join(f"{ts(a)} --> {ts(z)}\n{text}\n\n" for a, z, text in cues))
+
+
 def contact_sheet(mp4, out, dur, n=12):
     step = max(dur / n, 0.1)
     subprocess.run([FFMPEG, "-v", "error", "-y", "-i", mp4, "-vf",
@@ -1342,7 +1390,7 @@ def cmd_run(a):
             if b.spec.get("say") or b.spec.get("caption")}
     said = {i: (v if isinstance(v, list) else [v]) for i, v in said.items()}
     if narrate:
-        lines = {(i, k): text for i, v in said.items() for k, text in enumerate(v)}
+        lines = {(i, k): pronounce(text, spec.get("pronounce", {})) for i, v in said.items() for k, text in enumerate(v)}
         voiced = synthesize(lines, spec.get("voice", "af_heart"), float(spec.get("speed", 1.05)))
         for i, v in said.items():
             parts = [voiced[(i, k)] for k in range(len(v))]
@@ -1352,6 +1400,7 @@ def cmd_run(a):
                 beats[i].voice = os.path.join(workdir, f"voice-{i:02d}.wav")
                 beats[i].voice_dur = join_wavs([p for p, _ in parts], beats[i].voice, SENTENCE_GAP)
             beats[i].marks = [0.15 + sum(d + SENTENCE_GAP for _, d in parts[:k]) for k in range(len(parts))]
+            beats[i].subs = [(m, m + d, text) for m, (_, d), text in zip(beats[i].marks, parts, v)]
             durs[i] = beats[i].voice_dur
     else:  # silent: pace reveals by reading speed
         for i, v in said.items():
@@ -1359,6 +1408,12 @@ def cmd_run(a):
             durs[i] = beats[i].marks[-1] + len(v[-1].split()) / 2.8 if len(v) > 1 else 0
     T["tts"] = time.time()
 
+    spec["_subtitles"] = narrate and not raw and not a.no_subtitles and spec.get("subtitles", True)
+    if spec["_subtitles"]:  # lift captions, charts and media to leave a line at the bottom
+        global SUB_BAND, CAP_BAND, CAP_UNDER
+        SUB_BAND = 56
+        CAP_BAND += SUB_BAND
+        CAP_UNDER += SUB_BAND
     has_title = bool(spec.get("title_card")) and not raw  # off by default: the PR heading carries the title
     t0 = 1.8 if has_title else 0.0
     snaps, skips, t_end = record_terminal(spec, beats, t0, durs)
@@ -1381,6 +1436,10 @@ def cmd_run(a):
     if chapters:
         add_chapters(mp4, chapters, total)
     dur = probe_duration(mp4)
+    vtt = None
+    if spec["_subtitles"]:
+        vtt = os.path.join(workdir, "proof.vtt")
+        write_vtt(beats, vtt)
     contact_sheet(mp4, os.path.join(workdir, "contact.png"), dur)
     shutil.copy(spec_path, os.path.join(workdir, "spec.yaml"))
     url = None
@@ -1396,7 +1455,7 @@ def cmd_run(a):
         for it in (b.spec.get("callout") if isinstance(b.spec.get("callout"), list) else [b.spec.get("callout")] if b.spec.get("callout") else [])
         if not any(c.find == it["find"] for c in b.callouts)]
     summary = {
-        "url": url, "attachment": attachment, "mp4": mp4, "contact_sheet": os.path.join(workdir, "contact.png"),
+        "url": url, "attachment": attachment, "mp4": mp4, "subtitles": vtt, "contact_sheet": os.path.join(workdir, "contact.png"),
         "duration_s": round(dur, 2), "frames_rendered": nframes, "narrated": narrate,
         "chapters": [{"title": n, "start": round(a, 2), "at": f"{int(a // 60)}:{int(a % 60):02d}"} for n, a in chapters],
         "beats": [{"caption": b.spec.get("caption"), "start": round(b.start, 2), "end": round(b.end, 2),
@@ -1467,6 +1526,7 @@ def main():
     r.add_argument("--no-narrate", action="store_true", help="skip the Kokoro voice (on by default; say: or caption per beat)")
     r.add_argument("--narrate", action="store_true", help=argparse.SUPPRESS)  # old flag, now the default
     r.add_argument("--raw", action="store_true", help="terminal only: no title, captions, or callouts")
+    r.add_argument("--no-subtitles", action="store_true", help="don't burn in the spoken words (on whenever narrated)")
     r.add_argument("--no-publish", action="store_true")
     r.add_argument("--slug")
     r.add_argument("--out")
