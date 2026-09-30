@@ -140,6 +140,7 @@ The JSON output contains:
 
 Where a video goes:
 - **PRs, especially private repos:** use a GitHub attachment (`--pr N` or `proof attach`). On a private repo the URL only loads for people with access to the repo (logged out, it's a 404), so there's no public bucket to manage. Videos can be up to 10 MB on free plans and 100 MB on paid plans.
+- **Where it goes in a PR description:** in the Walkthrough section, or in its own section (e.g. `## Video`) after the TL;DR. It never replaces or displaces the TL;DR. Keep the URL on its own line so it plays inline.
 - **Quick looks inside the tailnet:** the default tailnet link.
 - Never make the captures bucket public (`tailscale funnel`) for work videos, because anyone with the link could watch it.
 
