@@ -209,7 +209,12 @@ def record_terminal(spec, beats, t0, narrate_durs):
     for i, b in enumerate(beats):
         s = b.spec
         if s.get("image") or s.get("video"):
-            b.media = load_media(s, os.path.dirname(os.path.abspath(spec["_path"])), cwd)
+            kind = "video" if s.get("video") else "image"
+            layout = s.get("layout") or spec.get("layouts", {}).get(kind) or ("device" if kind == "video" else "full")
+            if layout not in LAYOUTS:
+                raise SystemExit(f"unknown layout {layout!r}; choose from {', '.join(LAYOUTS)}")
+            s = {**spec.get("media", {}), **s}  # project-wide media defaults (rotate, speed...)
+            b.media = load_media(s, os.path.dirname(os.path.abspath(spec["_path"])), cwd, layout)
             b.start = t
             b.done = t + b.media["dur"]
             cap_words = len(((s.get("heading") or "") + " " + (s.get("caption") or "")).split())
@@ -492,41 +497,68 @@ def draw_chart(c, p, mark_a):
 MEDIA_RADIUS = 36
 
 
-def media_box(w, h):
-    """Portrait media (phone recordings) sits right of a text column; landscape fills the frame above the caption."""
-    if h > w:
+# Layout library. A beat picks one with `layout:`; projects set defaults in proof.config.yaml.
+#   device       media centred, heading + caption centred underneath (device and simulator recordings)
+#   device-side  portrait media on the right, heading + caption in a left column
+#   full         media fills the frame above a bottom-left caption (screenshots, game captures)
+LAYOUTS = ("device", "device-side", "full")
+CAP_UNDER = 190  # room under centred media for a heading and two caption lines
+
+
+def media_box(w, h, layout):
+    if layout == "device-side":
         bh = H - 2 * int(MARGIN * 0.6)
         bw = round(w * bh / h)
-        return (W - MARGIN - bw, int(MARGIN * 0.6), bw, bh), True
+        return (W - MARGIN - bw, int(MARGIN * 0.6), bw, bh)
+    if layout == "device":
+        top = int(MARGIN * 0.6)
+        scale = min((W - 2 * MARGIN) / w, (H - 2 * top - CAP_UNDER) / h)
+        fw, fh = round(w * scale), round(h * scale)
+        return ((W - fw) // 2, top + (H - 2 * top - CAP_UNDER - fh) // 2, fw, fh)
     bw, bh = W - 2 * MARGIN, H - 2 * MARGIN - CAP_BAND
     scale = min(bw / w, bh / h)
     fw, fh = round(w * scale), round(h * scale)
-    return ((W - fw) // 2, MARGIN + (bh - fh) // 2, fw, fh), False
+    return ((W - fw) // 2, MARGIN + (bh - fh) // 2, fw, fh)
 
 
-def load_media(s, spec_dir, cwd):
-    """image: or video: beats. Videos are decoded once at FPS and sized to their box; trim: [a, b] and speed: apply."""
+ROTATIONS = {None: None, "cw": (Image.ROTATE_270, "transpose=1"), "ccw": (Image.ROTATE_90, "transpose=2"),
+             "180": (Image.ROTATE_180, "hflip,vflip")}
+
+
+def load_media(s, spec_dir, cwd, layout):
+    """image: or video: beats. Videos are decoded once at FPS and sized to their box; trim: [a, b], speed: and rotate: apply.
+    rotate: cw | ccw | 180 turns the source upright first. Simulator recordings are always in panel orientation, so a
+    landscape run comes out sideways."""
     src = s.get("video") or s.get("image")
     path = next((p for p in (os.path.join(spec_dir, os.path.expanduser(src)), os.path.join(cwd, os.path.expanduser(src)))
                  if os.path.exists(p)), None)
     if not path:
         raise SystemExit(f"media not found: {src}")
+    rot = None if s.get("rotate") is None else str(s["rotate"])
+    if rot not in ROTATIONS:
+        raise SystemExit(f"rotate must be one of {', '.join(k for k in ROTATIONS if k)}")
     if s.get("image"):
         im = Image.open(path).convert("RGB")
-        (x, y, w, h), portrait = media_box(*im.size)
-        return {"frames": [im.resize((w, h), Image.LANCZOS)], "box": (x, y), "portrait": portrait,
-                "dur": 0.0, "rounded": portrait}
+        if rot:
+            im = im.transpose(ROTATIONS[rot][0])
+        x, y, w, h = media_box(*im.size, layout)
+        return {"frames": [im.resize((w, h), Image.LANCZOS)], "box": (x, y), "size": (w, h), "layout": layout,
+                "dur": 0.0, "rounded": layout != "full"}
     probe = subprocess.run([FFMPEG, "-i", path], capture_output=True, text=True).stderr
     m = re.search(r", (\d{2,5})x(\d{2,5})", probe)
-    (x, y, w, h), portrait = media_box(int(m.group(1)), int(m.group(2)))
+    sw, sh = int(m.group(1)), int(m.group(2))
+    if rot in ("cw", "ccw"):
+        sw, sh = sh, sw
+    x, y, w, h = media_box(sw, sh, layout)
     out = tempfile.mkdtemp(prefix="proof-media-")
     a, z = (s.get("trim") or [0, None]) + [None] * (2 - len(s.get("trim") or [0, None]))
     speed = float(s.get("speed", 1))
     cmd = [FFMPEG, "-v", "error", "-y"] + (["-ss", str(a)] if a else []) + (["-to", str(z)] if z else []) + ["-i", path]
-    vf = f"setpts=PTS/{speed},fps={FPS},scale={w}:{h}:flags=lanczos"
+    vf = f"setpts=PTS/{speed},fps={FPS},{ROTATIONS[rot][1] + ',' if rot else ''}scale={w}:{h}:flags=lanczos"
     subprocess.run(cmd + ["-vf", vf, "-an", os.path.join(out, "%05d.png")], check=True)
     frames = sorted(os.path.join(out, f) for f in os.listdir(out))
-    return {"frames": frames, "box": (x, y), "portrait": portrait, "dur": len(frames) / FPS, "rounded": portrait}
+    return {"frames": frames, "box": (x, y), "size": (w, h), "layout": layout, "dur": len(frames) / FPS,
+            "rounded": layout != "full"}
 
 
 _mask_cache = {}
@@ -682,7 +714,17 @@ class Renderer:
                        fill=FG + (int(255 * a),))
             cap = " · ".join(extra + ([b.spec["caption"]] if b.spec.get("caption") else []))
             head = b.spec.get("heading")
-            if b.media and b.media["portrait"]:
+            if b.media and b.media["layout"] == "device":
+                (mx, my), (mw, mh) = b.media["box"], b.media["size"]
+                y = my + mh + 28 * U / 2
+                if head:
+                    d.text(((W - self.f_head.getlength(head)) / 2, y), head, font=self.f_head, fill=FG)
+                    y += self.f_head.size + 16
+                for line in (wrap(cap, self.f_cap, min(W - 2 * MARGIN, 700 * U)) if cap else [])[:2]:
+                    d.text(((W - self.f_cap.getlength(line)) / 2, y), line, font=self.f_cap, fill=INK2)
+                    y += round(self.f_cap.size * 1.4)
+                return im
+            if b.media and b.media["layout"] == "device-side":
                 col = min(b.media["box"][0] - 2 * MARGIN, 440 * U)
                 hl = wrap(head, self.f_head_big, col) if head else []
                 cl = wrap(cap, self.f_cap, col) if cap else []
@@ -937,10 +979,34 @@ def post_comment(pr, repo, body):
 
 # ---------------------------------------------------------------- commands
 
+def find_project_config(start):
+    d = os.path.dirname(os.path.abspath(start))
+    while True:
+        for name in ("proof.config.yaml", ".proof.yaml"):
+            if os.path.exists(os.path.join(d, name)):
+                return os.path.join(d, name)
+        if os.path.exists(os.path.join(d, ".git")) or d == os.path.dirname(d):
+            return None
+        d = os.path.dirname(d)
+
+
+def merge_project_config(spec, spec_path):
+    """Project defaults (layouts, capture settings, voice, size...) sit under the spec; the spec wins, key by key."""
+    path = find_project_config(spec_path)
+    if not path:
+        return spec
+    cfg = yaml.safe_load(open(path)) or {}
+    log(f"project config: {path}")
+    out = dict(cfg)
+    for k, v in spec.items():
+        out[k] = {**out[k], **v} if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
 def cmd_run(a):
     T = {"start": time.time()}
     spec_path = os.path.abspath(a.spec)
-    spec = yaml.safe_load(open(spec_path))
+    spec = merge_project_config(yaml.safe_load(open(spec_path)), spec_path)
     spec["_path"] = spec_path
     raw = a.raw or spec.get("tier") == 1
     narrate = (a.narrate or spec.get("narrate", False)) and not raw

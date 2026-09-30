@@ -55,7 +55,11 @@ Chart beats show data without screen capture, and can be mixed with terminal bea
     caption: "main grows quadratically; the fix stays flat."
 ```
 
-Media beats put screenshots and recordings (Simulator, device, game capture) in the same video. A portrait clip sits on the right, with the heading and caption in a left column; landscape media fills the frame above the caption:
+Media beats put screenshots and recordings (Simulator, device, game capture) in the same video. Pick a layout per beat with `layout:`:
+
+- `device` (default for video): the media is centred and fitted, and the heading and caption sit centred underneath it. Use this for phone and tablet captures in either orientation.
+- `device-side`: portrait media on the right, with the heading and caption in a left column.
+- `full` (default for images): the media fills the frame above the bottom caption. Use this for game captures and desktop screens.
 
 ```yaml
   - video: recordings/02-start.mp4     # or image: shots/after.png
@@ -63,9 +67,26 @@ Media beats put screenshots and recordings (Simulator, device, game capture) in 
     caption: "The mock control plane walks provisioning to ready."
     trim: [0.5, 6]                      # optional, seconds
     speed: 1.5                          # optional
+    rotate: ccw                         # optional: cw | ccw | 180
+    layout: device                      # optional; see above
+```
+
+Simulator recordings are always in panel orientation, so a landscape run comes out sideways. `rotate: ccw` fixes a `LANDSCAPE_LEFT` run and `rotate: cw` fixes `LANDSCAPE_RIGHT`. Check one frame to confirm.
+
+Project defaults go in `proof.config.yaml` (or `.proof.yaml`). `proof` finds it by walking up from the spec to the repo root and puts it underneath the spec: spec keys win, and dict values merge one level deep. Put the house layout and capture quirks there, so each spec only holds the story:
+
+```yaml
+layouts: {video: device, image: device}
+media: {rotate: ccw}                    # defaults for every image/video beat
 ```
 
 Scripted Simulator captures: write a Maestro flow with `startRecording: <name>` / `stopRecording` around each step, run it with `maestro test flow.yaml` (set `MAESTRO_CLI_NO_ANALYTICS=1`), and point one `video:` beat at each recording. Never use `maestro record` without `--local`, because the default mode uploads the screen to mobile.dev.
+
+Drive the app deterministically, not by tapping around: add a debug-only, simulator-only deep link to the app that injects input events (for example `myapp://debug-input?keys=right,right,a&interval=400` feeding the app's controller-event stream), and call it with `openLink`. This exercises the real focus and controller paths, and every run is identical.
+
+Maestro on iOS, checked against its docs and issue tracker:
+- The first deep link on a fresh simulator shows iOS's "Open in …?" alert. Accepting it is permanent for that simulator, so handle it once in the flow with a conditional `runFlow: {when: {visible: "Open in .*"}, …}`.
+- In landscape, Maestro's element hierarchy and its tap-by-text are rotated 90° ([#3595](https://github.com/mobile-dev-inc/Maestro/issues/3595)), and tapping by text can hit the view underneath an alert. Do the text navigation first, or tap with percentage `point:`s taken from a landscape screenshot. `setOrientation` persists across `launchApp`, so set it at the top of the flow.
 
 `{ratio}` means the first series divided by the marked one at that x, so labels track the real numbers.
 Terminal callouts accept `regex: true` for dynamic text, for example `find: "\\d+x(?= *$)"`.
