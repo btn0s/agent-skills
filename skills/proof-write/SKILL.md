@@ -1,14 +1,15 @@
 ---
-name: proof-script
+name: proof-write
 description: >-
   Write the script for a narrated PR walkthrough: the story arc, the spoken agenda, chapters, and the say: lines
   for each beat. Use when turning a change (a perf win, a bug fix, a new flow) into a proof.yaml that people can
-  follow without effort, or when a draft walkthrough feels dense. Rendering and capture live in screen-capture.
+  follow without effort, or when a draft walkthrough feels dense. Start here for any walkthrough; recordings and
+  data come from proof-capture, and the render from proof-present.
 ---
 
 # Writing a walkthrough script
 
-A walkthrough is there to lower cognitive load. The viewer should never have to hold something in their head that isn't on screen, or decode a term nobody explained. This skill covers the words and the order. The `proof` tool in the screen-capture skill renders them, so check its "Walkthroughs" section for the beat syntax.
+A walkthrough is there to lower cognitive load. The viewer should never have to hold something in their head that isn't on screen, or decode a term nobody explained. This skill covers the words and the order. proof-capture gathers the recordings and data each beat points at, and proof-present renders the result (its "Walkthroughs" section has the beat syntax).
 
 ## The arc
 

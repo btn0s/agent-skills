@@ -1,0 +1,4 @@
+interface:
+  display_name: "Proof: Present"
+  short_description: "Headless PR proof videos, terminal demos, charts, and narrated screen captures"
+  default_prompt: "Use $proof-present. For a PR proof, write a proof spec and run `proof run spec.yaml` at the lowest tier that proves the change; return only the direct mp4 link."

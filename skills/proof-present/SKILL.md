@@ -1,19 +1,21 @@
 ---
-name: screen-capture
+name: proof-present
 description: >-
-  Record, annotate, and narrate a screen capture end to end. Use when the user asks for a screen recording,
-  demo video, walkthrough, tutorial, or narrated capture, or runs /screen-capture. Records with the Cap CLI,
-  narrates with local Kokoro TTS (mlx-audio), and annotates and assembles with Tesseract (tsrct).
-  For PR proofs and CLI/terminal demos, use the one-command `proof` tool first (see "Fast path").
+  Render and publish proof and walkthrough videos. Use when turning a proof.yaml into a narrated mp4 with the
+  `proof` tool (terminal beats, charts, timelines, flows, cards, media, Kokoro voice, chapters), when setting up
+  the proof tools on a Mac, or for a full Cap → Kokoro → Tesseract edit. The words come from proof-write and the
+  recordings and data from proof-capture.
 ---
 
-# Screen capture: record → annotate → narrate
+# Presenting a proof: render → review → publish
+
+The script (story, agenda, `say:` lines) comes from **proof-write**. The raw material (recordings, trace JSON) comes from **proof-capture**. This skill turns them into one video and a link.
 
 ## Setup (run once, and after every `skills update`)
 
 ```sh
-~/.agents/skills/screen-capture/install.sh          # core + narration
-~/.agents/skills/screen-capture/install.sh --check  # what's there and what's missing; changes nothing
+~/.agents/skills/proof-present/install.sh          # core + narration
+~/.agents/skills/proof-present/install.sh --check  # what's there and what's missing; changes nothing
 ```
 
 Run `--check` first in a new environment. If core is missing, it exits non-zero; run the installer before recording anything. The script is idempotent.
@@ -92,9 +94,9 @@ Media beats put screenshots and recordings (Simulator, device, game capture) in 
     layout: device                      # optional; see above
 ```
 
-Simulator recordings are always in panel orientation, so a landscape run comes out sideways. `rotate: ccw` fixes a `LANDSCAPE_LEFT` run and `rotate: cw` fixes `LANDSCAPE_RIGHT`. Check one frame to confirm.
+Simulator recordings are always in panel orientation, so a landscape run comes out sideways. `rotate: ccw` fixes a `LANDSCAPE_LEFT` run and `rotate: cw` fixes `LANDSCAPE_RIGHT`. Check one frame to confirm. Capturing them is covered in proof-capture.
 
-Walkthroughs (a PR told as a story, not a single clip) use a few more pieces. Write the script with the `proof-script` skill; this section only covers the syntax.
+Walkthroughs (a PR told as a story, not a single clip) use a few more pieces. Write the script with the proof-write skill; this section only covers the syntax.
 
 - `say:` can be a list of sentences. Each one is voiced separately, and the lines on a card, the steps in a flow and the bars of a timeline appear as their sentence starts, so the screen never runs ahead of the voice.
 - `card:` is a plain text page: `{title, body}`, where body is a string or a list of lines. With a `say:` list, line k appears on sentence k, and any extra leading sentences belong to the title. Cards ignore `heading`/`caption`.
@@ -111,14 +113,6 @@ Project defaults go in `proof.config.yaml` (or `.proof.yaml`). `proof` finds it 
 layouts: {video: device, image: device}
 media: {rotate: ccw}                    # defaults for every image/video beat
 ```
-
-Scripted Simulator captures: write a Maestro flow with `startRecording: <name>` / `stopRecording` around each step, run it with `maestro test flow.yaml` (set `MAESTRO_CLI_NO_ANALYTICS=1`), and point one `video:` beat at each recording. Never use `maestro record` without `--local`, because the default mode uploads the screen to mobile.dev.
-
-Drive the app deterministically, not by tapping around: add a debug-only, simulator-only deep link to the app that injects input events (for example `myapp://debug-input?keys=right,right,a&interval=400` feeding the app's controller-event stream), and call it with `openLink`. This exercises the real focus and controller paths, and every run is identical.
-
-Maestro on iOS, checked against its docs and issue tracker:
-- The first deep link on a fresh simulator shows iOS's "Open in …?" alert. Accepting it is permanent for that simulator, so handle it once in the flow with a conditional `runFlow: {when: {visible: "Open in .*"}, …}`.
-- In landscape, Maestro's element hierarchy and its tap-by-text are rotated 90° ([#3595](https://github.com/mobile-dev-inc/Maestro/issues/3595)), and tapping by text can hit the view underneath an alert. Do the text navigation first, or tap with percentage `point:`s taken from a landscape screenshot. `setOrientation` persists across `launchApp`, so set it at the top of the flow.
 
 `{ratio}` means the first series divided by the marked one at that x, so labels track the real numbers.
 Terminal callouts accept `regex: true` for dynamic text, for example `find: "\\d+x(?= *$)"`.
@@ -167,37 +161,20 @@ Tips:
   `ln -sf <this skill dir>/proof/bin/proof ~/.local/bin/proof` (it needs `uv` on PATH).
 
 
-Three local tools, one pipeline:
+## Full edit: Cap → Kokoro → Tesseract
+
+For marketing-grade demos that `proof` can't express. Three local tools, one pipeline:
 
 | Stage | Tool | Skill with the details |
 | --- | --- | --- |
-| Record | `cap` (Cap Desktop CLI) | `cap` (routing + `cap guide --json`) |
+| Record | `cap` (Cap Desktop CLI) | proof-capture, and `cap guide --json` |
 | Narrate | Kokoro-82M via `mlx_audio.tts.generate` | this skill, `scripts/narrate.py` |
 | Annotate + edit + export | `tsrct` (Tesseract) | `tesseract-video`, `tesseract-motion` |
 
 Read the linked skills before running their commands. This file is the order of operations, not a
 replacement for them.
 
-## 0. Preflight
-
-```sh
-~/.agents/skills/screen-capture/install.sh --check
-export PATH="$HOME/.local/bin:$HOME/.cap/bin:$PATH"
-cap doctor --json          # need permissions.screenRecording == "granted" and captureReady
-```
-
-- **Screen Recording permission** belongs to the *responsible process*. Over SSH or Tailscale SSH, that's
-  the SSH daemon (`/usr/local/bin/tailscaled` on the devbox), which has been granted, so `cap record`
-  works headless. Apps launched on screen (Terminal and so on) do **not** inherit the grant, so `cap doctor`
-  run *inside* a recorded Terminal reports "not granted". To show the recorder on camera, use
-  `cap record status`, not `cap doctor`. Never try to bypass TCC.
-- If `tsrct` is missing or its version doesn't match `tesseract-video/references/cli-version.txt`, follow
-  `tesseract-video/references/installation.md`. Don't substitute another version.
-
-Keep each capture in its own folder, for example `~/dev/captures/<slug>/`, containing `raw/`, `audio/`,
-`stills/` and `out/`.
-
-## 1. Plan (before recording)
+### 1. Plan (before recording)
 
 Write `script.txt`, one narration beat per line. A beat is one action on screen plus the sentence spoken
 over it. Optionally prefix a beat with the timestamp where it should start (`mm:ss.s |`). Without
@@ -209,34 +186,18 @@ timestamps, beats run back to back.
           Authorize, and the repo list fills in automatically.
 ```
 
-Keep beats short (at most about 12 words, 3–5 s each). Do an action, then narrate it. Never script claims the
+Write the lines with proof-write. Keep beats short (at most about 12 words, 3–5 s each). Do an action, then narrate it. Never script claims the
 recording doesn't show. Don't invent speech or captions: all narration comes from this script, which the user
 approves.
 
-## 2. Record with Cap
+### 2. Record
+
+Record with Cap as described in proof-capture, and export to `raw/take1.mp4`.
+
+### 3. Narrate with Kokoro
 
 ```sh
-cap targets --json                               # pick a screen id or window id
-cap record start --window <id> --fps 60 --path raw/take1.cap --detach --json
-#   ... perform the actions (or have the user perform them) ...
-cap record stop --path raw/take1.cap --json
-cap project validate raw/take1.cap
-cap export raw/take1.cap -o raw/take1.mp4 --quality maximum --json
-```
-
-- Prefer `--window` over `--screen`. It keeps the frame tight and hides notifications.
-- Use `--duration N` for unattended, fixed-length takes. Add `--mic "<name>"` only when the user wants live
-  voice rather than TTS, and `--system-audio` only if app sounds matter.
-- Studio mode (the default) keeps editable cursor and zoom data. Adjust it with
-  `cap project config get|set raw/take1.cap` before exporting. Instant mode is for quick shareable links.
-- Stills for thumbnails and annotation references: `cap screenshot --window <id> --path stills/step1.png --json`.
-- For a fully automated, cinematic web-page demo (virtual input, 3D camera), the `cap-demo` skill may fit
-  better.
-
-## 3. Narrate with Kokoro
-
-```sh
-python3 ~/.claude/skills/screen-capture/scripts/narrate.py script.txt audio/ \
+python3 ~/.agents/skills/proof-present/scripts/narrate.py script.txt audio/ \
   --voice af_heart --speed 1.0
 ```
 
@@ -250,7 +211,11 @@ Voices: `af_heart` (default, warm), `af_bella`, `af_nicole`, `am_michael`, `am_f
 `mlx_audio.tts.generate --model mlx-community/Kokoro-82M-bf16 --voice af_heart --lang_code a --text "…"
 --output_path audio --file_prefix line --join_audio`.
 
-## 4. Annotate, assemble, export with Tesseract
+### 4. Annotate, assemble, export with Tesseract
+
+If `tsrct` is missing or its version doesn't match `tesseract-video/references/cli-version.txt`, follow
+`tesseract-video/references/installation.md`. Don't substitute another version.
+
 
 Follow `tesseract-video` (editing, audio, timing, delivery) and `tesseract-motion` (callouts, highlights,
 lower thirds, and zoom and pan). In outline:
@@ -266,13 +231,8 @@ lower thirds, and zoom and pan). In outline:
 5. Review with the filmstrip and waveform checks described in `tesseract-video`, then export an MP4 to
    `out/`.
 
-### Lessons from headless terminal demos
+#### Lessons from headless terminal demos
 
-- **Drive the screen without Apple Events.** Generate a `.terminal` profile whose `CommandString` runs a
-  self-typing script, then launch it with `open demo.terminal` over SSH. Size and place the window with
-  `printf '\e[3;0;25t\e[8;38;140t'`. Have the script wait for a `go` file so recording starts first. Run
-  `clear` before the first prompt, and have the script log `mark <name>` timestamps so you can find beats in
-  the footage.
 - **Hide the cursor, remove the shadow.** Before `cap export`, use `cap project config set` with `cursor.hide`
   and a shadow of 0.
 - **Frame by scaling, then matte.** Scale each footage segment 110–150% about the terminal's top-left corner
@@ -293,12 +253,12 @@ lower thirds, and zoom and pan). In outline:
 - **Verify the file itself:** check it with ffprobe, transcribe the exported audio with `whisper-cli`
   (every scripted line present, at the right time), and make an ffmpeg contact sheet of the MP4.
 
-## 5. Deliver
+### 5. Deliver
 
 Always finish by publishing the final MP4 to the tailnet captures bucket and returning its link:
 
 ```sh
-~/.claude/skills/screen-capture/scripts/publish.sh out/final.mp4 <slug>
+~/.agents/skills/proof-present/scripts/publish.sh out/final.mp4 <slug>
 # -> https://<host>.<tailnet>.ts.net/captures/<YYYY-MM-DD>-<slug>/final.mp4
 ```
 
