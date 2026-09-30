@@ -1255,6 +1255,29 @@ def publish(src_dir, slug):
     return f"https://{tailnet_host()}/captures/{urllib.parse.quote(name)}/"
 
 
+SPEEDUP_AUTO = [(60, 1.0), (120, 1.2), (float("inf"), 1.5)]  # rendered length up to N s -> playback rate
+
+
+def playback_rate(v, total):
+    """speedup: auto picks a rate from the rendered length; a number forces it; false or 1 leaves it."""
+    if v in (False, None, "off", "none"):
+        return 1.0
+    if v == "auto":
+        return next(r for limit, r in SPEEDUP_AUTO if total <= limit)
+    return float(v)
+
+
+def speed_up(mp4, rate, has_audio):
+    """Play the whole video faster: picture and voice together, pitch kept (atempo)."""
+    tmp = mp4 + ".fast.mp4"
+    cmd = [FFMPEG, "-v", "error", "-y", "-i", mp4, "-vf", f"setpts=PTS/{rate},fps={FPS}",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-tune", "animation", "-pix_fmt", "yuv420p"]
+    cmd += ["-af", f"atempo={rate}", "-c:a", "aac", "-b:a", "128k"] if has_audio else ["-an"]
+    subprocess.run(cmd + ["-movflags", "+faststart", tmp], check=True)
+    os.replace(tmp, mp4)
+    log(f"played back at {rate}x")
+
+
 def add_chapters(mp4, chapters, total):
     """Write chapter markers into the mp4 so players show them as a jump list; no re-encode."""
     meta = os.path.join(os.path.dirname(mp4), "chapters.txt")
@@ -1432,6 +1455,14 @@ def cmd_run(a):
     R.frame((last.done + last.end) / 2).save(os.path.join(workdir, "poster.png"))
     T["render"] = time.time()
 
+    rate = playback_rate(a.speedup if a.speedup is not None else spec.get("speedup", "auto"), total)
+    if rate != 1:
+        speed_up(mp4, rate, bool(audio))
+        total /= rate
+        for b in beats:  # keep chapters, subtitles and the JSON on the new clock
+            b.start, b.done, b.end = b.start / rate, b.done / rate, b.end / rate
+            b.marks = [m / rate for m in b.marks]
+            b.subs = [(on / rate, off / rate, x) for on, off, x in b.subs]
     chapters = [(b.spec["chapter"], b.start) for b in beats if b.spec.get("chapter")]
     if chapters:
         add_chapters(mp4, chapters, total)
@@ -1456,7 +1487,7 @@ def cmd_run(a):
         if not any(c.find == it["find"] for c in b.callouts)]
     summary = {
         "url": url, "attachment": attachment, "mp4": mp4, "subtitles": vtt, "contact_sheet": os.path.join(workdir, "contact.png"),
-        "duration_s": round(dur, 2), "frames_rendered": nframes, "narrated": narrate,
+        "duration_s": round(dur, 2), "speedup": rate, "frames_rendered": nframes, "narrated": narrate,
         "chapters": [{"title": n, "start": round(a, 2), "at": f"{int(a // 60)}:{int(a % 60):02d}"} for n, a in chapters],
         "beats": [{"caption": b.spec.get("caption"), "start": round(b.start, 2), "end": round(b.end, 2),
                    "sentences_at": [round(b.start + m, 2) for m in b.marks],
@@ -1526,6 +1557,7 @@ def main():
     r.add_argument("--no-narrate", action="store_true", help="skip the Kokoro voice (on by default; say: or caption per beat)")
     r.add_argument("--narrate", action="store_true", help=argparse.SUPPRESS)  # old flag, now the default
     r.add_argument("--raw", action="store_true", help="terminal only: no title, captions, or callouts")
+    r.add_argument("--speedup", help="playback rate for the finished video: auto (default), a number like 1.3, or 1 for none")
     r.add_argument("--no-subtitles", action="store_true", help="don't burn in the spoken words (on whenever narrated)")
     r.add_argument("--no-publish", action="store_true")
     r.add_argument("--slug")
