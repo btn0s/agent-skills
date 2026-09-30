@@ -93,6 +93,11 @@ class Beat:
     voice_dur: float = 0.0
     callouts: list = field(default_factory=list)
     chart: dict = None
+    media: dict = None
+
+    @property
+    def kind(self):
+        return "chart" if self.chart else "media" if self.media else "term"
 
 
 class Term:
@@ -203,6 +208,15 @@ def record_terminal(spec, beats, t0, narrate_durs):
 
     for i, b in enumerate(beats):
         s = b.spec
+        if s.get("image") or s.get("video"):
+            b.media = load_media(s, os.path.dirname(os.path.abspath(spec["_path"])), cwd)
+            b.start = t
+            b.done = t + b.media["dur"]
+            cap_words = len(((s.get("heading") or "") + " " + (s.get("caption") or "")).split())
+            hold = float(s.get("hold", 1.2 if s.get("video") else 2.2))
+            b.end = max(b.done + hold, b.start + 1.0 + cap_words / 3.2, b.start + narrate_durs.get(i, 0) + 0.6)
+            t = b.end
+            continue
         if s.get("chart"):
             b.chart = load_chart(s["chart"], cwd, spec.get("env", {}))
             b.start = t
@@ -473,6 +487,65 @@ def draw_chart(c, p, mark_a):
     return im.resize((W, H), Image.LANCZOS)
 
 
+# ---------------------------------------------------------------- media (screenshots, device and simulator recordings)
+
+MEDIA_RADIUS = 36
+
+
+def media_box(w, h):
+    """Portrait media (phone recordings) sits right of a text column; landscape fills the frame above the caption."""
+    if h > w:
+        bh = H - 2 * int(MARGIN * 0.6)
+        bw = round(w * bh / h)
+        return (W - MARGIN - bw, int(MARGIN * 0.6), bw, bh), True
+    bw, bh = W - 2 * MARGIN, H - 2 * MARGIN - CAP_BAND
+    scale = min(bw / w, bh / h)
+    fw, fh = round(w * scale), round(h * scale)
+    return ((W - fw) // 2, MARGIN + (bh - fh) // 2, fw, fh), False
+
+
+def load_media(s, spec_dir, cwd):
+    """image: or video: beats. Videos are decoded once at FPS and sized to their box; trim: [a, b] and speed: apply."""
+    src = s.get("video") or s.get("image")
+    path = next((p for p in (os.path.join(spec_dir, os.path.expanduser(src)), os.path.join(cwd, os.path.expanduser(src)))
+                 if os.path.exists(p)), None)
+    if not path:
+        raise SystemExit(f"media not found: {src}")
+    if s.get("image"):
+        im = Image.open(path).convert("RGB")
+        (x, y, w, h), portrait = media_box(*im.size)
+        return {"frames": [im.resize((w, h), Image.LANCZOS)], "box": (x, y), "portrait": portrait,
+                "dur": 0.0, "rounded": portrait}
+    probe = subprocess.run([FFMPEG, "-i", path], capture_output=True, text=True).stderr
+    m = re.search(r", (\d{2,5})x(\d{2,5})", probe)
+    (x, y, w, h), portrait = media_box(int(m.group(1)), int(m.group(2)))
+    out = tempfile.mkdtemp(prefix="proof-media-")
+    a, z = (s.get("trim") or [0, None]) + [None] * (2 - len(s.get("trim") or [0, None]))
+    speed = float(s.get("speed", 1))
+    cmd = [FFMPEG, "-v", "error", "-y"] + (["-ss", str(a)] if a else []) + (["-to", str(z)] if z else []) + ["-i", path]
+    vf = f"setpts=PTS/{speed},fps={FPS},scale={w}:{h}:flags=lanczos"
+    subprocess.run(cmd + ["-vf", vf, "-an", os.path.join(out, "%05d.png")], check=True)
+    frames = sorted(os.path.join(out, f) for f in os.listdir(out))
+    return {"frames": frames, "box": (x, y), "portrait": portrait, "dur": len(frames) / FPS, "rounded": portrait}
+
+
+_mask_cache = {}
+
+
+def paste_media(im, frame, box, rounded):
+    if isinstance(frame, str):
+        frame = Image.open(frame).convert("RGB")
+    if not rounded:
+        im.paste(frame, box)
+        return
+    key = frame.size
+    if key not in _mask_cache:  # supersampled rounded mask, so the corners stay smooth
+        big = Image.new("L", (frame.width * 2, frame.height * 2), 0)
+        ImageDraw.Draw(big).rounded_rectangle((0, 0, big.width - 1, big.height - 1), MEDIA_RADIUS * 2, fill=255)
+        _mask_cache[key] = big.resize(frame.size, Image.LANCZOS)
+    im.paste(frame, box, _mask_cache[key])
+
+
 class Layout:
     """Terminal text sits straight on the page: no window, one margin, block centred in the space above the caption."""
     def __init__(self, cols, rows, raw):
@@ -518,6 +591,8 @@ class Renderer:
         self.t_term0, self.t_term1, self.raw, self.title_card = t_term0, t_term1, raw, title_card
         self.snap_t = [s.t for s in snaps]
         self.f_cap = font("Medium", 17 * U)
+        self.f_head = font("SemiBold", 19 * U)
+        self.f_head_big = font("SemiBold", 40 * U)
         self.f_label = font("Medium", max(16, round(L.size * 0.82)))
         self.f_small = font("Medium", 12 * U)
         self.chart_cache = {}
@@ -606,6 +681,25 @@ class Renderer:
                 d.text((lx + L.cw * 0.5, ly + (L.lh - self.f_label.size) / 2 - 3), c.label, font=self.f_label,
                        fill=FG + (int(255 * a),))
             cap = " · ".join(extra + ([b.spec["caption"]] if b.spec.get("caption") else []))
+            head = b.spec.get("heading")
+            if b.media and b.media["portrait"]:
+                col = min(b.media["box"][0] - 2 * MARGIN, 440 * U)
+                hl = wrap(head, self.f_head_big, col) if head else []
+                cl = wrap(cap, self.f_cap, col) if cap else []
+                block = len(hl) * 52 * U / 1 + (16 * U if hl and cl else 0) + len(cl) * 30 * U
+                y = (H - block) / 2
+                for line in hl:
+                    d.text((MARGIN, y), line, font=self.f_head_big, fill=FG)
+                    y += 52 * U
+                y += 16 * U if hl and cl else 0
+                for line in cl:
+                    d.text((MARGIN, y), line, font=self.f_cap, fill=INK2)
+                    y += 30 * U
+                return im
+            if head:
+                cap_lines = wrap(cap, self.f_cap, W - 2 * MARGIN) if cap else []
+                y = L.cap_y - 30 * U * len(cap_lines) - self.f_head.size - 8 * U
+                d.text((MARGIN, y), head, font=self.f_head, fill=FG)
             if cap:
                 lines = wrap(cap, self.f_cap, W - 2 * MARGIN)
                 y = L.cap_y - 30 * U * (len(lines) - 1) - self.f_cap.size
@@ -635,14 +729,25 @@ class Renderer:
             self.chart_cache[key] = draw_chart(b.chart, p, mark_a)
         return self.chart_cache[key].copy()
 
+    def media_frame(self, b, t):
+        m = b.media
+        k = min(len(m["frames"]) - 1, max(0, int((t - b.start) * FPS)))
+        im = Image.new("RGB", (W, H), BG)
+        paste_media(im, m["frames"][k], m["box"], m["rounded"])
+        return im
+
     def scene(self, b, t):
-        return self.chart_frame(b, t) if b is not None and b.chart else self.terminal(t, b)
+        if b is not None and b.chart:
+            return self.chart_frame(b, t)
+        if b is not None and b.media:
+            return self.media_frame(b, t)
+        return self.terminal(t, b)
 
     def frame(self, t):
         i, b = self.beat_at(t)
         im = self.scene(b, t)
-        if i and t - b.start < XFADE and bool(self.beats[i - 1].chart) != bool(b.chart):
-            prev = self.scene(self.beats[i - 1], b.start - 1e-3)  # crossfade terminal <-> chart
+        if i and t - b.start < XFADE and (b.media or self.beats[i - 1].kind != b.kind):
+            prev = self.scene(self.beats[i - 1], b.start - 1e-3)  # crossfade between scenes
             im = Image.blend(prev, im, (t - b.start) / XFADE)
         return self.overlays(im, t)
 
@@ -712,7 +817,9 @@ def render_video(R, beats, total, has_title, has_outro, workdir, audio):
         if b.chart:
             times |= {b.start + k / FPS for k in range(int(CHART_DRAW * FPS) + 2)}
             times |= {b.done - 0.05 + k / FPS for k in range(int(0.3 * FPS) + 2)}
-        if i and bool(beats[i - 1].chart) != bool(b.chart):
+        if b.media:
+            times |= {b.start + k / FPS for k in range(len(b.media["frames"]) + 1)}
+        if i and (b.media or beats[i - 1].kind != b.kind):
             times |= {b.start + k / FPS for k in range(int(XFADE * FPS) + 1)}
     fade = 0.35
     fades = []
@@ -724,7 +831,7 @@ def render_video(R, beats, total, has_title, has_outro, workdir, audio):
         times |= {a + k / FPS for k in range(int(fade * FPS) + 1)}
     t = R.t_term0
     while t < R.t_term1:  # cursor blink
-        if not (R.beat_at(t)[1] and R.beat_at(t)[1].chart):
+        if not (R.beat_at(t)[1] and R.beat_at(t)[1].kind != "term"):
             times.add(round(t, 4))
         t += 0.3125
     times = sorted(x for x in times if 0 <= x <= total)
@@ -834,6 +941,7 @@ def cmd_run(a):
     T = {"start": time.time()}
     spec_path = os.path.abspath(a.spec)
     spec = yaml.safe_load(open(spec_path))
+    spec["_path"] = spec_path
     raw = a.raw or spec.get("tier") == 1
     narrate = (a.narrate or spec.get("narrate", False)) and not raw
     slug = a.slug or spec.get("slug") or re.sub(r"[^a-z0-9]+", "-", spec.get("title", "proof").lower()).strip("-")[:48]

@@ -55,6 +55,18 @@ Chart beats show data without screen capture, and can be mixed with terminal bea
     caption: "main grows quadratically; the fix stays flat."
 ```
 
+Media beats put screenshots and recordings (Simulator, device, game capture) in the same video. A portrait clip sits on the right, with the heading and caption in a left column; landscape media fills the frame above the caption:
+
+```yaml
+  - video: recordings/02-start.mp4     # or image: shots/after.png
+    heading: "Start a session"          # optional; the PR step's bold heading
+    caption: "The mock control plane walks provisioning to ready."
+    trim: [0.5, 6]                      # optional, seconds
+    speed: 1.5                          # optional
+```
+
+Scripted Simulator captures: write a Maestro flow with `startRecording: <name>` / `stopRecording` around each step, run it with `maestro test flow.yaml` (set `MAESTRO_CLI_NO_ANALYTICS=1`), and point one `video:` beat at each recording. Never use `maestro record` without `--local`, because the default mode uploads the screen to mobile.dev.
+
 `{ratio}` means the first series divided by the marked one at that x, so labels track the real numbers.
 Terminal callouts accept `regex: true` for dynamic text, for example `find: "\\d+x(?= *$)"`.
 Chart titles get the unit appended, e.g. "runtime vs. size (ms)". The line under the title is `source:`, which defaults to "Measured on <host>, <date>"; set it to the real conditions, for example `source: "M4 Pro · Python 3.13 · best of 3"`.
