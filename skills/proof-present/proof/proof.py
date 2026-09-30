@@ -4,11 +4,12 @@
 # ///
 """proof — fast, headless proof videos for PRs.
 
-  proof run  spec.yaml [--no-narrate] [--raw] [--no-publish] [--pr N [--post]]
+  proof run  spec.yaml [--no-narrate] [--raw] [--no-publish] [--attach] [--pr N [--repo O/R] [--post]]
              beats are terminal commands (run:/type:) or animated charts (chart:), mixed freely
   proof shot [--screen ID | --window ID] [--slug S]
   proof clip --duration N [--screen ID | --window ID] [--slug S] [-- command ...]
   proof publish PATH [--slug S]
+  proof attach FILE [--repo O/R]     upload as a GitHub attachment; prints the URL
 
 `run` drives a real shell through a pty and renders the terminal itself (pyte + Pillow): no screen
 recording, no TCC, exact timing, and callouts that find text in the terminal buffer instead of pixels.
@@ -1267,6 +1268,25 @@ def pr_comment(args, spec, beats, url, dur):
     return f"{url}\n"
 
 
+def attach(path, repo):
+    """Upload to GitHub user-attachments with the gh-attach extension. On a private repo only people with
+    access to it can load the URL, so this is how proofs of private work get into PRs."""
+    if subprocess.run(["gh", "attach", "--help"], capture_output=True).returncode:
+        raise SystemExit("needs the gh-attach extension: gh extension install sudosubin/gh-attach")
+    repo = repo or subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+                                  capture_output=True, text=True).stdout.strip()
+    if not repo:
+        raise SystemExit("attach: pass --repo owner/name (not inside a GitHub checkout)")
+    mb = os.path.getsize(path) / 1e6
+    if mb > 100:
+        raise SystemExit(f"attach: {mb:.0f} MB is over GitHub's 100 MB video limit")
+    if mb > 10:
+        log(f"attach: {mb:.0f} MB; GitHub free plans cap videos at 10 MB")
+    out = subprocess.run(["gh", "attach", "upload", path, "-R", repo, "--json", "href"],
+                         capture_output=True, text=True, check=True).stdout
+    return json.loads(out)[0]["href"]
+
+
 def post_comment(pr, repo, body):
     q = ["gh", "pr", "view", str(pr), "--json", "author", "-q", ".author.login"] + (["-R", repo] if repo else [])
     author = subprocess.run(q, capture_output=True, text=True).stdout.strip()
@@ -1368,6 +1388,7 @@ def cmd_run(a):
         stage = tempfile.mkdtemp()
         shutil.copy(mp4, stage)
         url = publish(stage, slug) + os.path.basename(mp4)
+    attachment = attach(mp4, a.repo) if a.attach or a.pr else None
     T["publish"] = time.time()
 
     missing = [c.find for b in beats for c in b.callouts if not c.cell] + [
@@ -1375,7 +1396,7 @@ def cmd_run(a):
         for it in (b.spec.get("callout") if isinstance(b.spec.get("callout"), list) else [b.spec.get("callout")] if b.spec.get("callout") else [])
         if not any(c.find == it["find"] for c in b.callouts)]
     summary = {
-        "url": url, "mp4": mp4, "contact_sheet": os.path.join(workdir, "contact.png"),
+        "url": url, "attachment": attachment, "mp4": mp4, "contact_sheet": os.path.join(workdir, "contact.png"),
         "duration_s": round(dur, 2), "frames_rendered": nframes, "narrated": narrate,
         "chapters": [{"title": n, "start": round(a, 2), "at": f"{int(a // 60)}:{int(a % 60):02d}"} for n, a in chapters],
         "beats": [{"caption": b.spec.get("caption"), "start": round(b.start, 2), "end": round(b.end, 2),
@@ -1388,7 +1409,7 @@ def cmd_run(a):
                      "total": round(T["publish"] - T["start"], 1)},
     }
     if a.pr:
-        body = pr_comment(a, spec, beats, url, dur)
+        body = pr_comment(a, spec, beats, attachment, dur)  # a video URL on its own line plays inline
         with open(os.path.join(workdir, "pr-comment.md"), "w") as f:
             f.write(body)
         summary["pr_comment"] = os.path.join(workdir, "pr-comment.md")
@@ -1449,8 +1470,9 @@ def main():
     r.add_argument("--no-publish", action="store_true")
     r.add_argument("--slug")
     r.add_argument("--out")
-    r.add_argument("--pr", type=int, help="write pr-comment.md for this PR")
-    r.add_argument("--repo", help="owner/name for --post")
+    r.add_argument("--attach", action="store_true", help="also upload as a GitHub attachment (see proof attach)")
+    r.add_argument("--pr", type=int, help="attach, and write pr-comment.md for this PR")
+    r.add_argument("--repo", help="owner/name for --attach/--pr/--post; defaults to the current checkout")
     r.add_argument("--post", action="store_true", help="post the comment with gh (btn0s PRs only)")
     for name, fn in (("shot", cmd_shot), ("clip", cmd_clip)):
         p = sub.add_parser(name, help=f"{name} the real screen with cap")
@@ -1465,6 +1487,10 @@ def main():
     p.add_argument("path")
     p.add_argument("--slug")
     p.set_defaults(fn=cmd_publish)
+    p = sub.add_parser("attach", help="upload a file as a GitHub attachment and print its URL")
+    p.add_argument("path")
+    p.add_argument("--repo")
+    p.set_defaults(fn=lambda a: print(attach(os.path.abspath(a.path), a.repo)))
     r.set_defaults(fn=cmd_run)
     a = ap.parse_args()
     if getattr(a, "command", None) and a.command[:1] == ["--"]:

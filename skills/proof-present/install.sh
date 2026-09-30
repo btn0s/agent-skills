@@ -134,6 +134,16 @@ EOF
     miss "tailscale serve" "install.sh --publish (or use proof run --no-publish)"
 fi
 
+step "GitHub attachments (proof attach, --pr)"
+if command -v gh >/dev/null; then
+  gh attach --help >/dev/null 2>&1 && ok gh-attach "$(gh extension list 2>/dev/null | awk '/gh-attach/{print $3}')" ||
+    { [ $CHECK = 0 ] && gh extension install sudosubin/gh-attach >/dev/null 2>&1 && ok gh-attach "installed" ||
+      miss gh-attach "gh extension install sudosubin/gh-attach"; }
+  echo "  note     gh-attach uploads with your browser's GitHub session; be signed in to github.com"
+else
+  miss gh "brew install gh && gh auth login"
+fi
+
 step "Screen recording (--screen: proof shot, proof clip)"
 if [ ! -d /Applications/Cap.app ]; then
   [ $SCREEN = 1 ] && [ $CHECK = 0 ] && brew install --cask cap || miss Cap "install.sh --screen (brew install --cask cap)"

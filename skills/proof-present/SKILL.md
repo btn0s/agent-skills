@@ -140,16 +140,22 @@ Flags:
 - `--no-publish`
 - `--slug`
 - `--out`
-- `--pr N --repo owner/name` writes `pr-comment.md`, which contains only the video link.
+- `--attach` uploads the mp4 as a GitHub attachment (needs the `gh-attach` extension; `--repo owner/name`, defaulting to the current checkout). `proof attach FILE --repo owner/name` does the same for an existing video.
+- `--pr N` attaches and writes `pr-comment.md`, which contains only the attachment URL on its own line, so GitHub plays it inline.
 - `--post` comments via `gh`, but only on PRs authored by btn0s, and only after the user confirms.
 
 The JSON output contains:
-- `url`: the direct `proof.mp4` link. Only the video is published: no HTML page, and no text outside the video.
+- `url`: the direct tailnet `proof.mp4` link, and `attachment`: the GitHub attachment URL. Only the video is published: no HTML page, and no text outside the video.
 - `mp4`
 - `contact_sheet`
 - `callouts_not_found`
 - per-beat placement
 - timings
+
+Where a video goes:
+- **PRs, especially private repos:** use a GitHub attachment (`--pr N` or `proof attach`). On a private repo the URL only loads for people with access to the repo (logged out, it's a 404), so there's no public bucket to manage. Videos can be up to 10 MB on free plans and 100 MB on paid plans.
+- **Quick looks inside the tailnet:** the default tailnet link.
+- Never make the captures bucket public (`tailscale funnel`) for work videos, because anyone with the link could watch it.
 
 **Always open `contact_sheet` before sharing.** If `callouts_not_found` is not empty, fix the `find` text.
 
