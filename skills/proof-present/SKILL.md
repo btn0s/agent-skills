@@ -2,9 +2,9 @@
 name: proof-present
 description: >-
   Render and publish proof and walkthrough videos. Use when turning a proof.yaml into a narrated mp4 with the
-  `proof` tool (terminal beats, charts, timelines, flows, cards, media, Kokoro voice, chapters), when setting up
-  the proof tools on a Mac, or for a full Cap → Kokoro → Tesseract edit. The words come from proof-write and the
-  recordings and data from proof-capture.
+  `proof` tool (terminal beats, charts, timelines, flows, cards, media, Kokoro voice, chapters), attaching it to a
+  PR, or for a full Cap → Kokoro → Tesseract edit. The words come from proof-write, the recordings and data from
+  proof-capture, and the tools from proof-setup.
 ---
 
 # Presenting a proof: render → review → publish
