@@ -19,8 +19,8 @@ terminal beats run in a real bash under a pty and are rendered frame by frame.
 | --- | --- | --- | --- |
 | 0 still | Proving a visual state exists | `proof shot [--window "App"] --slug x` | <1s |
 | 1 raw | Terminal output is the proof, no polish | `proof run spec.yaml --raw` | ~10s |
-| 2 captioned | The default for PRs: captions and callouts | `proof run spec.yaml` | ~13s |
-| 3 narrated | Reviewers or stakeholders who won't read captions | `proof run spec.yaml --narrate` | ~19s |
+| 2 narrated | The default for PRs: captions, callouts and a Kokoro voice | `proof run spec.yaml` | ~19s |
+| 3 silent | Captions only, or no Kokoro on this host | `proof run spec.yaml --no-narrate` | ~13s |
 | GUI clip | The proof is in a GUI app | `proof clip --duration 8 [-- cmd]` (Cap) | real time |
 | Full edit | Marketing-grade demos | The Cap → Kokoro → Tesseract pipeline below | minutes |
 
@@ -34,7 +34,7 @@ setup: [git config color.ui always]        # runs invisibly before recording
 beats:
   - run: python3 -m unittest 2>&1 | grep -E '^(AssertionError|FAILED)'
     caption: "On main, the two accent tests fail."
-    say: "On main, the two tests with accented titles fail."   # used only with --narrate
+    say: "On main, the two tests with accented titles fail."   # spoken line; defaults to the caption
     callout: {find: "FAILED (failures=2)", label: "Bug reproduced on main"}
   - clear: true
     run: python3 -m unittest -q

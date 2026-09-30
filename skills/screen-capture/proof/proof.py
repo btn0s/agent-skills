@@ -4,7 +4,7 @@
 # ///
 """proof — fast, headless proof videos for PRs.
 
-  proof run  spec.yaml [--narrate] [--raw] [--no-publish] [--pr N [--post]]
+  proof run  spec.yaml [--no-narrate] [--raw] [--no-publish] [--pr N [--post]]
              beats are terminal commands (run:/type:) or animated charts (chart:), mixed freely
   proof shot [--screen ID | --window ID] [--slug S]
   proof clip --duration N [--screen ID | --window ID] [--slug S] [-- command ...]
@@ -1009,7 +1009,10 @@ def cmd_run(a):
     spec = merge_project_config(yaml.safe_load(open(spec_path)), spec_path)
     spec["_path"] = spec_path
     raw = a.raw or spec.get("tier") == 1
-    narrate = (a.narrate or spec.get("narrate", False)) and not raw
+    narrate = not (a.no_narrate or spec.get("narrate", True) is False or raw)
+    if narrate and not os.path.exists(TTS_PY):
+        raise SystemExit("proof narrates by default, but Kokoro isn't installed: "
+                         "uv tool install mlx-audio (or pass --no-narrate / set narrate: false)")
     slug = a.slug or spec.get("slug") or re.sub(r"[^a-z0-9]+", "-", spec.get("title", "proof").lower()).strip("-")[:48]
     workdir = os.path.abspath(a.out or os.path.join(os.path.dirname(spec_path), "proof-out", slug))
     os.makedirs(workdir, exist_ok=True)
@@ -1124,7 +1127,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="render a terminal proof from a spec")
     r.add_argument("spec")
-    r.add_argument("--narrate", action="store_true", help="Kokoro voice for each beat (say: or caption)")
+    r.add_argument("--no-narrate", action="store_true", help="skip the Kokoro voice (on by default; say: or caption per beat)")
+    r.add_argument("--narrate", action="store_true", help=argparse.SUPPRESS)  # old flag, now the default
     r.add_argument("--raw", action="store_true", help="terminal only: no title, captions, or callouts")
     r.add_argument("--no-publish", action="store_true")
     r.add_argument("--slug")
