@@ -94,10 +94,15 @@ class Beat:
     callouts: list = field(default_factory=list)
     chart: dict = None
     media: dict = None
+    timeline: dict = None
+    card: dict = None
 
     @property
     def kind(self):
-        return "chart" if self.chart else "media" if self.media else "term"
+        for k in ("chart", "media", "timeline", "card"):
+            if getattr(self, k):
+                return k
+        return "term"
 
 
 class Term:
@@ -219,6 +224,26 @@ def record_terminal(spec, beats, t0, narrate_durs):
             b.done = t + b.media["dur"]
             cap_words = len(((s.get("heading") or "") + " " + (s.get("caption") or "")).split())
             hold = float(s.get("hold", 1.2 if s.get("video") else 2.2))
+            b.end = max(b.done + hold, b.start + 1.0 + cap_words / 3.2, b.start + narrate_durs.get(i, 0) + 0.6)
+            t = b.end
+            continue
+        if s.get("card"):
+            c = s["card"] if isinstance(s["card"], dict) else {"title": s["card"]}
+            body = c.get("body") or []
+            b.card = {"title": c.get("title", ""), "body": [body] if isinstance(body, str) else list(body)}
+            b.start = t
+            b.done = t + 0.3
+            words = len(" ".join([b.card["title"]] + b.card["body"]).split())
+            b.end = max(b.start + float(s.get("hold", 1.4)) + words / 3.6, b.start + narrate_durs.get(i, 0) + 0.7)
+            t = b.end
+            continue
+        if s.get("timeline"):
+            b.timeline = load_timeline(s["timeline"], os.path.dirname(os.path.abspath(spec["_path"])), cwd)
+            b.timeline["_reserve"] = text_reserve(s) // 2  # the plot's own axis labels already sit in the gap
+            b.start = t
+            b.done = t + b.timeline["draw"] + 0.2
+            cap_words = len(((s.get("heading") or "") + " " + (s.get("caption") or "")).split())
+            hold = float(s.get("hold", 2.4))
             b.end = max(b.done + hold, b.start + 1.0 + cap_words / 3.2, b.start + narrate_durs.get(i, 0) + 0.6)
             t = b.end
             continue
@@ -492,6 +517,102 @@ def draw_chart(c, p, mark_a):
     return im.resize((W, H), Image.LANCZOS)
 
 
+# ---------------------------------------------------------------- timelines (stage waterfalls, before vs after)
+
+def load_timeline(c, spec_dir, cwd):
+    """Stage waterfall. runs: {name: {total, stages: [[stage, start, dur], ...]}} inline or from file: (same JSON).
+    show: the runs on screen (default all); reveal: the runs that draw in (default all shown); focus: stage(s) to keep
+    lit while the rest dims. Two runs read as before (gray) and after (accent)."""
+    data = {}
+    if c.get("file"):
+        f = os.path.expanduser(c["file"])
+        data = json.load(open(next((q for q in (os.path.join(spec_dir, f), os.path.join(cwd, f)) if os.path.exists(q)), f)))
+    d = {**data, **{k: v for k, v in c.items() if k != "file"}}
+    runs = d["runs"]
+    d["show"] = list(d.get("show") or runs)
+    d["reveal"] = list(d["show"]) if d.get("reveal") is None else list(d["reveal"])  # reveal: [] = all static
+    focus = d.get("focus") or []
+    d["focus"] = [focus] if isinstance(focus, str) else list(focus)
+    d["rows"] = list(d.get("rows") or dict.fromkeys(st[0] for r in runs.values() for st in r["stages"]))
+    d["xmax"] = float(d.get("xmax") or max(r.get("total") or max(a + (du or 0) for _, a, du in r["stages"])
+                                           for r in runs.values()) * 1.04)
+    d["draw"] = float(d.get("draw", 2.2))
+    d.setdefault("unit", "s")
+    d.setdefault("source", f"Measured on {os.uname().nodename.split('.')[0]}, {dt.date.today():%Y-%m-%d}")
+    return d
+
+
+def draw_timeline(c, p, focus_a):
+    """p: 0..1 sweep of the revealed runs along the time axis; focus_a: 0..1 dimming of unfocused rows."""
+    S = 2
+    im = Image.new("RGB", (W * S, H * S), BG)
+    d = ImageDraw.Draw(im, "RGBA")
+    k = S * U
+    f_title, f_sub = font("SemiBold", 22 * k), font("Medium", 13 * k)
+    f_tick, f_row, f_val = font("Medium", 12 * k), font("Medium", 13 * k), font("SemiBold", 13 * k)
+    x0, y0 = MARGIN * S, MARGIN * S * 0.75
+    unit = c["unit"]
+    title = c.get("title", "")
+    if unit and f"({unit})" not in title:
+        title = f"{title} ({unit})"
+    d.text((x0, y0), title, font=f_title, fill=FG)
+    d.text((x0, y0 + 32 * k), c["source"], font=f_sub, fill=MUTED)
+    names = list(c["runs"])
+    cols = dict(zip(names, series_colors(names)))
+    shown = [n for n in names if n in c["show"]]
+    lx, ly = x0, y0 + 60 * k
+    for name in shown:  # legend
+        d.rounded_rectangle((lx, ly + 3 * k, lx + 14 * k, ly + 13 * k), 2 * k, fill=cols[name])
+        d.text((lx + 22 * k, ly - 1 * k), name, font=f_sub, fill=INK2)
+        lx += 22 * k + f_sub.getlength(name) + 28 * k
+    rows = c["rows"]
+    label_w = max(f_row.getlength(r) for r in rows)
+    px0, px1 = x0 + label_w + 24 * k, W * S - MARGIN * S - 80 * k
+    py0, py1 = ly + 52 * k, (H - MARGIN - CAP_BAND - 20 - c.get("_reserve", 0)) * S
+    X = lambda v: px0 + (px1 - px0) * v / c["xmax"]
+    ticks = nice_ticks(c["xmax"], 5)
+    for v in ticks:
+        if v > c["xmax"]:
+            continue
+        d.line((X(v), py0 - 8 * k, X(v), py1), fill=AXIS if v == 0 else GRID, width=max(1, k // 2))
+        lab = f"{fmt_num(v)} {unit}" if v == ticks[-1] or X(ticks[-1]) > px1 and v == ticks[-2] else fmt_num(v)
+        d.text((X(v) - f_tick.getlength(lab) / 2, py1 + 10 * k), lab, font=f_tick, fill=MUTED)
+    row_h = (py1 - py0) / len(rows)
+    lane = min(16 * k, (row_h - 10 * k) / max(len(shown), 1))
+    cursor = c["xmax"] * p
+    lit = lambda r: not c["focus"] or r in c["focus"]
+    for ri, r in enumerate(rows):
+        dim = 0 if lit(r) else 0.6 * focus_a
+        cy = py0 + row_h * (ri + 0.5)
+        d.text((px0 - 24 * k - f_row.getlength(r), cy - 9 * k), r, font=f_row, fill=mix(INK2, BG, dim))
+        top = cy - lane * len(shown) / 2
+        for li, name in enumerate(shown):
+            st = next((x for x in c["runs"][name]["stages"] if x[0] == r), None)
+            if not st:
+                continue
+            a, du = st[1], st[2]
+            open_end = du is None
+            du = c["xmax"] - a if open_end else du
+            z = a + du if name not in c["reveal"] else min(a + du, cursor)
+            if z <= a and du > 0:
+                continue
+            by0, by1 = top + lane * li + 1.5 * k, top + lane * (li + 1) - 1.5 * k
+            d.rounded_rectangle((X(a), by0, max(X(z), X(a) + 2 * k), by1), 2 * k, fill=mix(cols[name], BG, dim))
+            crowded = len(shown) > 1 and c["focus"] and not lit(r)  # paired lanes: label only the stages in focus
+            if z >= a + du and not open_end and not crowded:  # duration label once the bar is complete
+                lab = f"{du:.2f} {unit}"
+                d.text((max(X(z), X(a) + 2 * k) + 8 * k, (by0 + by1) / 2 - 8 * k), lab, font=f_val,
+                       fill=mix(FG, BG, dim if lit(r) else max(dim, 0.35)))
+    for name in shown:  # total marker per run: a hairline and the claim-to-ready number
+        tot = c["runs"][name].get("total")
+        if tot is None or name in c["reveal"] and cursor < tot:
+            continue
+        d.line((X(tot), py0 - 8 * k, X(tot), py1), fill=cols[name], width=max(2, k))
+        lab = f"{fmt_num(round(tot, 1))} {unit}"
+        d.text((X(tot) + 8 * k, py0 - 26 * k), lab, font=f_val, fill=FG)
+    return im.resize((W, H), Image.LANCZOS)
+
+
 # ---------------------------------------------------------------- media (screenshots, device and simulator recordings)
 
 MEDIA_RADIUS = 36
@@ -505,7 +626,12 @@ LAYOUTS = ("device", "device-side", "full")
 CAP_UNDER = 190  # room under centred media for a heading and two caption lines
 
 
-def media_box(w, h, layout):
+def text_reserve(s):
+    """Extra px under a chart or full-frame media for a heading and a second caption line."""
+    return (48 * U if s.get("heading") else 0) + (30 * U if len(s.get("caption") or "") > 95 else 0)
+
+
+def media_box(w, h, layout, reserve=0):
     if layout == "device-side":
         bh = H - 2 * int(MARGIN * 0.6)
         bw = round(w * bh / h)
@@ -515,7 +641,7 @@ def media_box(w, h, layout):
         scale = min((W - 2 * MARGIN) / w, (H - 2 * top - CAP_UNDER) / h)
         fw, fh = round(w * scale), round(h * scale)
         return ((W - fw) // 2, top + (H - 2 * top - CAP_UNDER - fh) // 2, fw, fh)
-    bw, bh = W - 2 * MARGIN, H - 2 * MARGIN - CAP_BAND
+    bw, bh = W - 2 * MARGIN, H - 2 * MARGIN - CAP_BAND - reserve
     scale = min(bw / w, bh / h)
     fw, fh = round(w * scale), round(h * scale)
     return ((W - fw) // 2, MARGIN + (bh - fh) // 2, fw, fh)
@@ -541,7 +667,7 @@ def load_media(s, spec_dir, cwd, layout):
         im = Image.open(path).convert("RGB")
         if rot:
             im = im.transpose(ROTATIONS[rot][0])
-        x, y, w, h = media_box(*im.size, layout)
+        x, y, w, h = media_box(*im.size, layout, text_reserve(s))
         return {"frames": [im.resize((w, h), Image.LANCZOS)], "box": (x, y), "size": (w, h), "layout": layout,
                 "dur": 0.0, "rounded": layout != "full"}
     probe = subprocess.run([FFMPEG, "-i", path], capture_output=True, text=True).stderr
@@ -549,7 +675,7 @@ def load_media(s, spec_dir, cwd, layout):
     sw, sh = int(m.group(1)), int(m.group(2))
     if rot in ("cw", "ccw"):
         sw, sh = sh, sw
-    x, y, w, h = media_box(sw, sh, layout)
+    x, y, w, h = media_box(sw, sh, layout, text_reserve(s))
     out = tempfile.mkdtemp(prefix="proof-media-")
     a, z = (s.get("trim") or [0, None]) + [None] * (2 - len(s.get("trim") or [0, None]))
     speed = float(s.get("speed", 1))
@@ -694,6 +820,8 @@ class Renderer:
                 txt = f"{secs:.0f} s of waiting cut"
                 d.text((W - MARGIN - self.f_small.getlength(txt), MARGIN * 0.5), txt, font=self.f_small, fill=MUTED)
         extra = []
+        if b and b.card:
+            return im
         if b:
             for c in b.callouts:
                 if not (c.on <= t < c.off) or not c.cell:
@@ -771,6 +899,37 @@ class Renderer:
             self.chart_cache[key] = draw_chart(b.chart, p, mark_a)
         return self.chart_cache[key].copy()
 
+    def timeline_frame(self, b, t):
+        c = b.timeline
+        u = min(max((t - b.start) / c["draw"], 0), 1)
+        p = 1 if u >= 1 else 1 - (1 - u) ** 2
+        fa = min(1.0, max(0.0, (t - b.done + 0.05) / 0.4)) if c["focus"] else 0
+        key = (id(b), round(p, 3), round(fa, 2))
+        if key not in self.chart_cache:
+            self.chart_cache[key] = draw_timeline(c, p, fa)
+        return self.chart_cache[key].copy()
+
+    def card_frame(self, b):
+        """Intro, chapter and outro cards: a heading and a few plain lines, left-aligned on the page."""
+        if id(b) not in self.chart_cache:
+            im = Image.new("RGB", (W, H), BG)
+            d = ImageDraw.Draw(im)
+            f_big, f_body = font("SemiBold", 34 * U), font("Medium", 18 * U)
+            head = wrap(b.card["title"], f_big, W - 2 * MARGIN)
+            body = [l for para in b.card["body"] for l in wrap(para, f_body, min(W - 2 * MARGIN, 760 * U)) + [""]][:-1]
+            block = 48 * U * len(head) + (22 * U if body else 0) + 32 * U * len(body)
+            y = (H - block) / 2 - 20 * U
+            for line in head:
+                d.text((MARGIN, y), line, font=f_big, fill=FG)
+                y += 48 * U
+            y += 22 * U if body else 0
+            for line in body:
+                if line:
+                    d.text((MARGIN, y), line, font=f_body, fill=INK2)
+                y += 32 * U if line else 14 * U
+            self.chart_cache[id(b)] = im
+        return self.chart_cache[id(b)].copy()
+
     def media_frame(self, b, t):
         m = b.media
         k = min(len(m["frames"]) - 1, max(0, int((t - b.start) * FPS)))
@@ -783,12 +942,16 @@ class Renderer:
             return self.chart_frame(b, t)
         if b is not None and b.media:
             return self.media_frame(b, t)
+        if b is not None and b.timeline:
+            return self.timeline_frame(b, t)
+        if b is not None and b.card:
+            return self.card_frame(b)
         return self.terminal(t, b)
 
     def frame(self, t):
         i, b = self.beat_at(t)
         im = self.scene(b, t)
-        if i and t - b.start < XFADE and (b.media or self.beats[i - 1].kind != b.kind):
+        if i and t - b.start < XFADE and (b.media or b.card or self.beats[i - 1].kind != b.kind):
             prev = self.scene(self.beats[i - 1], b.start - 1e-3)  # crossfade between scenes
             im = Image.blend(prev, im, (t - b.start) / XFADE)
         return self.overlays(im, t)
@@ -861,7 +1024,10 @@ def render_video(R, beats, total, has_title, has_outro, workdir, audio):
             times |= {b.done - 0.05 + k / FPS for k in range(int(0.3 * FPS) + 2)}
         if b.media:
             times |= {b.start + k / FPS for k in range(len(b.media["frames"]) + 1)}
-        if i and (b.media or beats[i - 1].kind != b.kind):
+        if b.timeline:
+            times |= {b.start + k / FPS for k in range(int(b.timeline["draw"] * FPS) + 2)}
+            times |= {b.done - 0.05 + k / FPS for k in range(int(0.45 * FPS) + 2)}
+        if i and (b.media or b.card or beats[i - 1].kind != b.kind):
             times |= {b.start + k / FPS for k in range(int(XFADE * FPS) + 1)}
     fade = 0.35
     fades = []
@@ -951,6 +1117,20 @@ def publish(src_dir, slug):
     shutil.rmtree(dest, ignore_errors=True)
     shutil.copytree(src_dir, dest, ignore=shutil.ignore_patterns("frames", "frames.txt", "*.wav"))
     return f"https://{tailnet_host()}/captures/{urllib.parse.quote(name)}/"
+
+
+def add_chapters(mp4, chapters, total):
+    """Write chapter markers into the mp4 so players show them as a jump list; no re-encode."""
+    meta = os.path.join(os.path.dirname(mp4), "chapters.txt")
+    with open(meta, "w") as f:
+        f.write(";FFMETADATA1\n")
+        for k, (name, a) in enumerate(chapters):
+            z = chapters[k + 1][1] if k + 1 < len(chapters) else total
+            f.write(f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={int(a * 1000)}\nEND={int(z * 1000)}\ntitle={name}\n")
+    tmp = mp4 + ".tmp.mp4"
+    subprocess.run([FFMPEG, "-v", "error", "-y", "-i", mp4, "-i", meta, "-map", "0", "-map_metadata", "1",
+                    "-map_chapters", "1", "-c", "copy", "-movflags", "+faststart", tmp], check=True)
+    os.replace(tmp, mp4)
 
 
 def probe_duration(path):
@@ -1046,6 +1226,9 @@ def cmd_run(a):
     R.frame((last.done + last.end) / 2).save(os.path.join(workdir, "poster.png"))
     T["render"] = time.time()
 
+    chapters = [(b.spec["chapter"], b.start) for b in beats if b.spec.get("chapter")]
+    if chapters:
+        add_chapters(mp4, chapters, total)
     dur = probe_duration(mp4)
     contact_sheet(mp4, os.path.join(workdir, "contact.png"), dur)
     shutil.copy(spec_path, os.path.join(workdir, "spec.yaml"))
@@ -1063,6 +1246,7 @@ def cmd_run(a):
     summary = {
         "url": url, "mp4": mp4, "contact_sheet": os.path.join(workdir, "contact.png"),
         "duration_s": round(dur, 2), "frames_rendered": nframes, "narrated": narrate,
+        "chapters": [{"title": n, "start": round(a, 2), "at": f"{int(a // 60)}:{int(a % 60):02d}"} for n, a in chapters],
         "beats": [{"caption": b.spec.get("caption"), "start": round(b.start, 2), "end": round(b.end, 2),
                    "callouts": [{"find": c.find, "place": c.place[0]} for c in b.callouts]} for b in beats],
         "callouts_not_found": missing,
