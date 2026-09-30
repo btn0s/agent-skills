@@ -94,13 +94,16 @@ Media beats put screenshots and recordings (Simulator, device, game capture) in 
 
 Simulator recordings are always in panel orientation, so a landscape run comes out sideways. `rotate: ccw` fixes a `LANDSCAPE_LEFT` run and `rotate: cw` fixes `LANDSCAPE_RIGHT`. Check one frame to confirm.
 
-Walkthroughs (a PR told as a story, not a single clip) use three more pieces:
+Walkthroughs (a PR told as a story, not a single clip) use a few more pieces. Write the script with the `proof-script` skill; this section only covers the syntax.
 
-- `card:` is a plain text page for the intro, each chapter opener and the outro: `{title, body}`, where body is a string or a list of lines. Cards carry their own text and ignore `heading`/`caption`; `say:` is what gets spoken.
+- `say:` can be a list of sentences. Each one is voiced separately, and the lines on a card, the steps in a flow and the bars of a timeline appear as their sentence starts, so the screen never runs ahead of the voice.
+- `card:` is a plain text page: `{title, body}`, where body is a string or a list of lines. With a `say:` list, line k appears on sentence k, and any extra leading sentences belong to the title. Cards ignore `heading`/`caption`.
+- `card: {title, agenda: true}` lists every chapter name in order. On a chapter's own opener, that chapter is lit and the others are dimmed.
 - `chapter: <name>` on any beat starts a chapter. The names become mp4 chapter markers, which players show as a jump list, and appear in the run's JSON as `chapters` with timestamps, ready to paste into the PR.
-- `timeline:` is a stage waterfall. `runs: {name: {total, stages: [[stage, start, dur], ...]}}` goes inline or in `file:`. Two runs draw as before (gray) and after (accent). `show:` picks the runs on screen, `reveal:` picks the ones that sweep in (`[]` holds the chart still, for a focus beat), and `focus:` dims every other stage. `dur: null` draws an open-ended bar, and `total` is optional.
+- `flow:` is a row of steps that explains a process before any numbers are shown: `{title, source, steps: [label | {label, at: k}], span: {from, to, label, at: k}}`. The span is a bracket under the part that was measured. `at: k` holds an item back until sentence k.
+- `timeline:` is a stage waterfall. `runs: {name: {total, stages: [[stage, start, dur], ...]}}` goes inline or in `file:`. Two runs draw as before (gray) and after (accent). `show:` picks the runs on screen, `reveal:` picks the ones that sweep in (`[]` holds the chart still, for a focus beat), and `focus:` dims every other stage. `labels: {span_name: "Plain name"}` renames rows without editing the data. `dur: null` draws an open-ended bar, and `total` is optional.
 
-Pull the numbers from the source (trace spans, benchmark JSON), never from a PR's chart image. Rebuild figures natively instead of pasting a screenshot of a white matplotlib chart. A walkthrough reads best as: an intro card stating the result and how it was measured; per chapter, a card, then the evidence with a caption stating one fact; an outro card listing what's not done and the sample size. Say only what the data shows.
+Pull the numbers from the source (trace spans, benchmark JSON), never from a PR's chart image. Rebuild figures natively instead of pasting a screenshot of a white matplotlib chart.
 
 Project defaults go in `proof.config.yaml` (or `.proof.yaml`). `proof` finds it by walking up from the spec to the repo root and puts it underneath the spec: spec keys win, and dict values merge one level deep. Put the house layout and capture quirks there, so each spec only holds the story:
 

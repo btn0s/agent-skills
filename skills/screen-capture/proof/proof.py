@@ -98,10 +98,16 @@ class Beat:
     media: dict = None
     timeline: dict = None
     card: dict = None
+    flow: dict = None
+    marks: list = field(default_factory=list)  # seconds after start when each spoken sentence begins
+
+    def at(self, k):
+        """When sentence k starts (reveals keyed to narration); past the last sentence, the beat's end."""
+        return self.start + (self.marks[k] if k < len(self.marks) else self.end - self.start)
 
     @property
     def kind(self):
-        for k in ("chart", "media", "timeline", "card"):
+        for k in ("chart", "media", "timeline", "card", "flow"):
             if getattr(self, k):
                 return k
         return "term"
@@ -204,7 +210,9 @@ def record_terminal(spec, beats, t0, narrate_durs):
     term.wait_prompt()
     rnd = random.Random(7)
     snaps, skips = [term.snap(t0)], []
-    t = t0 + 0.4
+    scenes = ("image", "video", "flow", "card", "timeline", "chart")
+    opens_on_term = beats and not any(beats[0].spec.get(k) for k in scenes)
+    t = t0 + (0.4 if opens_on_term else 0)  # a beat at 0 would otherwise flash an empty prompt first
     max_gap = float(spec.get("max_gap", 0.8))
 
     def push(s):
@@ -229,10 +237,21 @@ def record_terminal(spec, beats, t0, narrate_durs):
             b.end = max(b.done + hold, b.start + 1.0 + cap_words / 3.2, b.start + narrate_durs.get(i, 0) + 0.6)
             t = b.end
             continue
+        if s.get("flow"):
+            b.flow = dict(s["flow"])
+            b.start = t
+            b.done = t + 0.3
+            b.end = max(b.start + float(s.get("hold", 3.0)), b.start + narrate_durs.get(i, 0) + 0.8)
+            t = b.end
+            continue
         if s.get("card"):
             c = s["card"] if isinstance(s["card"], dict) else {"title": s["card"]}
             body = c.get("body") or []
-            b.card = {"title": c.get("title", ""), "body": [body] if isinstance(body, str) else list(body)}
+            body = [body] if isinstance(body, str) else list(body)
+            current = None
+            if c.get("agenda"):  # the chapter list; on a chapter opener the current chapter is lit
+                body, current = list(spec["_agenda"]), s.get("chapter")
+            b.card = {"title": c.get("title", ""), "body": body, "current": current, "agenda": bool(c.get("agenda"))}
             b.start = t
             b.done = t + 0.3
             words = len(" ".join([b.card["title"]] + b.card["body"]).split())
@@ -330,6 +349,21 @@ def synthesize(lines, voice, speed):
     return res
 
 
+SENTENCE_GAP = 0.35
+
+
+def join_wavs(paths, out, gap):
+    rate, pcm = None, b""
+    for k, p in enumerate(paths):
+        with wave.open(p) as w:
+            rate = rate or w.getframerate()
+            pcm += (b"\0\0" * int(gap * rate) if k else b"") + w.readframes(w.getnframes())
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1), w.setsampwidth(2), w.setframerate(rate)
+        w.writeframes(pcm)
+    return len(pcm) / 2 / rate
+
+
 def mix_audio(beats, total, path):
     rate = 24000
     buf = array.array("i", [0]) * int((total + 1) * rate)
@@ -350,6 +384,12 @@ def mix_audio(beats, total, path):
 
 
 # ---------------------------------------------------------------- rendering
+
+def ink(col, a, bg=None):
+    """Text colour faded toward the page. Pillow ignores alpha when drawing text onto an RGB image."""
+    bg = BG if bg is None else bg
+    return tuple(round(b + (c - b) * a) for c, b in zip(col, bg))
+
 
 def font(kind, size):
     """kind: "mono" / "mono-bold" for the terminal, or an Inter weight (Bold, SemiBold, Medium)."""
@@ -511,11 +551,11 @@ def draw_chart(c, p, mark_a):
                 d.text((ex + 14 * k, ty), val, font=f_val, fill=FG)
                 if mark:
                     mx = ex + 14 * k + f_val.getlength(val) + 10 * k
-                    d.text((mx, ty + 1 * k), mark, font=f_val, fill=INK2 + (int(255 * mark_a),))
+                    d.text((mx, ty + 1 * k), mark, font=f_val, fill=ink(INK2, mark_a))
             else:
                 d.text((ex - f_val.getlength(val) / 2, ey - 24 * k), val, font=f_val, fill=FG)
                 if mark:
-                    d.text((ex - f_sub.getlength(mark) / 2, ey - 44 * k), mark, font=f_sub, fill=INK2 + (int(255 * mark_a),))
+                    d.text((ex - f_sub.getlength(mark) / 2, ey - 44 * k), mark, font=f_sub, fill=ink(INK2, mark_a))
     return im.resize((W, H), Image.LANCZOS)
 
 
@@ -568,7 +608,8 @@ def draw_timeline(c, p, focus_a):
         d.text((lx + 22 * k, ly - 1 * k), name, font=f_sub, fill=INK2)
         lx += 22 * k + f_sub.getlength(name) + 28 * k
     rows = c["rows"]
-    label_w = max(f_row.getlength(r) for r in rows)
+    rname = lambda r: c.get("labels", {}).get(r, r)  # plain-language row names; the data keeps the trace's
+    label_w = max(f_row.getlength(rname(r)) for r in rows)
     px0, px1 = x0 + label_w + 24 * k, W * S - MARGIN * S - 80 * k
     py0, py1 = ly + 52 * k, (H - MARGIN - CAP_BAND - 20 - c.get("_reserve", 0)) * S
     X = lambda v: px0 + (px1 - px0) * v / c["xmax"]
@@ -586,7 +627,7 @@ def draw_timeline(c, p, focus_a):
     for ri, r in enumerate(rows):
         dim = 0 if lit(r) else 0.6 * focus_a
         cy = py0 + row_h * (ri + 0.5)
-        d.text((px0 - 24 * k - f_row.getlength(r), cy - 9 * k), r, font=f_row, fill=mix(INK2, BG, dim))
+        d.text((px0 - 24 * k - f_row.getlength(rname(r)), cy - 9 * k), rname(r), font=f_row, fill=mix(INK2, BG, dim))
         top = cy - lane * len(shown) / 2
         for li, name in enumerate(shown):
             st = next((x for x in c["runs"][name]["stages"] if x[0] == r), None)
@@ -822,7 +863,7 @@ class Renderer:
                 txt = f"{secs:.0f} s of waiting cut"
                 d.text((W - MARGIN - self.f_small.getlength(txt), MARGIN * 0.5), txt, font=self.f_small, fill=MUTED)
         extra = []
-        if b and b.card:
+        if b and (b.card or b.flow):
             return im
         if b:
             for c in b.callouts:
@@ -841,7 +882,7 @@ class Renderer:
                 _, prow, pcol = c.place
                 lx, ly = L.cell(prow, pcol)
                 d.text((lx + L.cw * 0.5, ly + (L.lh - self.f_label.size) / 2 - 3), c.label, font=self.f_label,
-                       fill=FG + (int(255 * a),))
+                       fill=ink(FG, a))
             cap = " · ".join(extra + ([b.spec["caption"]] if b.spec.get("caption") else []))
             head = b.spec.get("heading")
             if b.media and b.media["layout"] == "device":
@@ -911,26 +952,97 @@ class Renderer:
             self.chart_cache[key] = draw_timeline(c, p, fa)
         return self.chart_cache[key].copy()
 
-    def card_frame(self, b):
-        """Intro, chapter and outro cards: a heading and a few plain lines, left-aligned on the page."""
-        if id(b) not in self.chart_cache:
+    def reveal_alpha(self, b, n_items, k, t):
+        """Items appear as they're spoken: with a say: list, item k shows when its sentence starts
+        (sentences beyond the items belong to the title). Otherwise everything shows at once."""
+        if len(b.marks) < 2:
+            return 1.0
+        off = max(0, len(b.marks) - n_items)
+        return min(1.0, max(0.0, (t - b.at(k + off)) / 0.3))
+
+    def card_frame(self, b, t):
+        """Intro, chapter, agenda and outro cards: a heading and plain lines, left-aligned on the page."""
+        c = b.card
+        alphas = tuple(round(self.reveal_alpha(b, len(c["body"]), k, t), 2) for k in range(len(c["body"])))
+        key = (id(b), alphas)
+        if key not in self.chart_cache:
             im = Image.new("RGB", (W, H), BG)
-            d = ImageDraw.Draw(im)
-            f_big, f_body = font("SemiBold", 34 * U), font("Medium", 18 * U)
-            head = wrap(b.card["title"], f_big, W - 2 * MARGIN)
-            body = [l for para in b.card["body"] for l in wrap(para, f_body, min(W - 2 * MARGIN, 760 * U)) + [""]][:-1]
-            block = 48 * U * len(head) + (22 * U if body else 0) + 32 * U * len(body)
+            d = ImageDraw.Draw(im, "RGBA")
+            f_big = font("SemiBold", 34 * U)
+            f_body = font("SemiBold", 24 * U) if c["agenda"] else font("Medium", 18 * U)
+            step = 44 * U if c["agenda"] else 32 * U
+            head = wrap(c["title"], f_big, W - 2 * MARGIN) if c["title"] else []
+            items = [wrap(x, f_body, min(W - 2 * MARGIN, 760 * U)) for x in c["body"]]
+            nlines = sum(len(x) for x in items)
+            block = 48 * U * len(head) + (26 * U if head and items else 0) + step * nlines + 14 * U * (len(items) - 1)
             y = (H - block) / 2 - 20 * U
             for line in head:
                 d.text((MARGIN, y), line, font=f_big, fill=FG)
                 y += 48 * U
-            y += 22 * U if body else 0
-            for line in body:
-                if line:
-                    d.text((MARGIN, y), line, font=f_body, fill=INK2)
-                y += 32 * U if line else 14 * U
-            self.chart_cache[id(b)] = im
-        return self.chart_cache[id(b)].copy()
+            y += 26 * U if head and items else 0
+            for k, lines in enumerate(items):
+                col = INK2
+                if c["current"] is not None:
+                    col = FG if c["body"][k] == c["current"] else MUTED
+                for line in lines:
+                    d.text((MARGIN, y), line, font=f_body, fill=ink(col, alphas[k]))
+                    y += step
+                y += 14 * U
+            self.chart_cache[key] = im
+        return self.chart_cache[key].copy()
+
+    def flow_frame(self, b, t):
+        """A row of steps with a bracket under the part that was measured. Steps and the bracket can wait for
+        their sentence with at: k."""
+        f = b.flow
+        steps = [x if isinstance(x, dict) else {"label": x} for x in f["steps"]]
+        span = f.get("span")
+        vis = lambda item: min(1.0, max(0.0, (t - b.at(item.get("at", 0))) / 0.3)) if b.marks else 1.0
+        alphas = tuple(round(vis(x), 2) for x in steps) + ((round(vis(span), 2),) if span else ())
+        key = (id(b), alphas)
+        if key in self.chart_cache:
+            return self.chart_cache[key].copy()
+        S, k = 2, 2 * U
+        im = Image.new("RGB", (W * S, H * S), BG)
+        d = ImageDraw.Draw(im, "RGBA")
+        f_title, f_sub, f_step = font("SemiBold", 22 * k), font("Medium", 13 * k), font("Medium", 14 * k)
+        x0, y0 = MARGIN * S, MARGIN * S * 0.75
+        if f.get("title"):
+            d.text((x0, y0), f["title"], font=f_title, fill=FG)
+        if f.get("source"):
+            d.text((x0, y0 + 32 * k), f["source"], font=f_sub, fill=MUTED)
+        n = len(steps)
+        gap = 22 * k
+        bw = ((W - 2 * MARGIN) * S - gap * (n - 1)) / n
+        wrapped = [wrap(x["label"], f_step, bw - 20 * k) for x in steps]
+        bh = max(len(w) for w in wrapped) * 20 * k + 28 * k
+        by = (H * S) * 0.44 - bh / 2
+        for j, (x, lines) in enumerate(zip(steps, wrapped)):
+            a = alphas[j]
+            if a <= 0:
+                continue
+            bx = x0 + j * (bw + gap)
+            d.rounded_rectangle((bx, by, bx + bw, by + bh), 8 * k, fill=GRID + (int(255 * a),))
+            ty = by + (bh - len(lines) * 20 * k) / 2 - 2 * k
+            for line in lines:
+                d.text((bx + (bw - f_step.getlength(line)) / 2, ty), line, font=f_step, fill=ink(FG, a))
+                ty += 20 * k
+            if j and alphas[j - 1] > 0:
+                d.line((bx - gap + 5 * k, by + bh / 2, bx - 5 * k, by + bh / 2), fill=MUTED + (int(255 * a),), width=k)
+        if span and alphas[-1] > 0:
+            a = alphas[-1]
+            sx0 = x0 + span["from"] * (bw + gap)
+            sx1 = x0 + span["to"] * (bw + gap) + bw
+            sy = by + bh + 26 * k
+            col = ACCENT + (int(255 * a),)
+            d.line((sx0, sy, sx1, sy), fill=col, width=2 * k)
+            d.line((sx0, sy - 10 * k, sx0, sy), fill=col, width=2 * k)
+            d.line((sx1, sy - 10 * k, sx1, sy), fill=col, width=2 * k)
+            f_span = font("SemiBold", 16 * k)
+            lab = span.get("label", "")
+            d.text(((sx0 + sx1) / 2 - f_span.getlength(lab) / 2, sy + 14 * k), lab, font=f_span, fill=ink(FG, a))
+        self.chart_cache[key] = im.resize((W, H), Image.LANCZOS)
+        return self.chart_cache[key].copy()
 
     def media_frame(self, b, t):
         m = b.media
@@ -947,13 +1059,15 @@ class Renderer:
         if b is not None and b.timeline:
             return self.timeline_frame(b, t)
         if b is not None and b.card:
-            return self.card_frame(b)
+            return self.card_frame(b, t)
+        if b is not None and b.flow:
+            return self.flow_frame(b, t)
         return self.terminal(t, b)
 
     def frame(self, t):
         i, b = self.beat_at(t)
         im = self.scene(b, t)
-        if i and t - b.start < XFADE and (b.media or b.card or self.beats[i - 1].kind != b.kind):
+        if i and t - b.start < XFADE and (b.media or b.card or b.flow or self.beats[i - 1].kind != b.kind):
             prev = self.scene(self.beats[i - 1], b.start - 1e-3)  # crossfade between scenes
             im = Image.blend(prev, im, (t - b.start) / XFADE)
         return self.overlays(im, t)
@@ -1029,7 +1143,9 @@ def render_video(R, beats, total, has_title, has_outro, workdir, audio):
         if b.timeline:
             times |= {b.start + k / FPS for k in range(int(b.timeline["draw"] * FPS) + 2)}
             times |= {b.done - 0.05 + k / FPS for k in range(int(0.45 * FPS) + 2)}
-        if i and (b.media or b.card or beats[i - 1].kind != b.kind):
+        for m in b.marks:  # reveals keyed to sentences
+            times |= {b.start + m + k / FPS for k in range(int(0.3 * FPS) + 2)}
+        if i and (b.media or b.card or b.flow or beats[i - 1].kind != b.kind):
             times |= {b.start + k / FPS for k in range(int(XFADE * FPS) + 1)}
     fade = 0.35
     fades = []
@@ -1200,14 +1316,27 @@ def cmd_run(a):
     os.makedirs(workdir, exist_ok=True)
     beats = [Beat(s) for s in spec["beats"]]
 
+    spec["_agenda"] = [b.spec["chapter"] for b in beats[1:] if b.spec.get("chapter")]
     durs = {}
+    said = {i: b.spec.get("say") or b.spec.get("caption") for i, b in enumerate(beats)
+            if b.spec.get("say") or b.spec.get("caption")}
+    said = {i: (v if isinstance(v, list) else [v]) for i, v in said.items()}
     if narrate:
-        lines = {i: (b.spec.get("say") or b.spec.get("caption")) for i, b in enumerate(beats)
-                 if b.spec.get("say") or b.spec.get("caption")}
+        lines = {(i, k): text for i, v in said.items() for k, text in enumerate(v)}
         voiced = synthesize(lines, spec.get("voice", "af_heart"), float(spec.get("speed", 1.05)))
-        for i, (p, d) in voiced.items():
-            beats[i].voice, beats[i].voice_dur = p, d
-            durs[i] = d
+        for i, v in said.items():
+            parts = [voiced[(i, k)] for k in range(len(v))]
+            if len(parts) == 1:
+                beats[i].voice, beats[i].voice_dur = parts[0]
+            else:  # one track per beat; marks say where each sentence starts
+                beats[i].voice = os.path.join(workdir, f"voice-{i:02d}.wav")
+                beats[i].voice_dur = join_wavs([p for p, _ in parts], beats[i].voice, SENTENCE_GAP)
+            beats[i].marks = [0.15 + sum(d + SENTENCE_GAP for _, d in parts[:k]) for k in range(len(parts))]
+            durs[i] = beats[i].voice_dur
+    else:  # silent: pace reveals by reading speed
+        for i, v in said.items():
+            beats[i].marks = [0.15 + sum(len(x.split()) / 2.8 + SENTENCE_GAP for x in v[:k]) for k in range(len(v))]
+            durs[i] = beats[i].marks[-1] + len(v[-1].split()) / 2.8 if len(v) > 1 else 0
     T["tts"] = time.time()
 
     has_title = bool(spec.get("title_card")) and not raw  # off by default: the PR heading carries the title
@@ -1250,6 +1379,7 @@ def cmd_run(a):
         "duration_s": round(dur, 2), "frames_rendered": nframes, "narrated": narrate,
         "chapters": [{"title": n, "start": round(a, 2), "at": f"{int(a // 60)}:{int(a % 60):02d}"} for n, a in chapters],
         "beats": [{"caption": b.spec.get("caption"), "start": round(b.start, 2), "end": round(b.end, 2),
+                   "sentences_at": [round(b.start + m, 2) for m in b.marks],
                    "callouts": [{"find": c.find, "place": c.place[0]} for c in b.callouts]} for b in beats],
         "callouts_not_found": missing,
         "timing_s": {"tts": round(T["tts"] - T["start"], 1), "record": round(T["record"] - T["tts"], 1),
