@@ -1,0 +1,32 @@
+title: "Fix: slugify keeps accented letters"
+subtitle: "fix/slugify-accents → main  ·  proof-demo"
+cwd: ~/dev/proof-demo
+prompt: ["bot@devbox", "~/proof-demo"]
+size: [100, 22]
+setup:
+  - git config color.ui always
+beats:
+  - run: git switch -q main && python3 -m unittest 2>&1 | grep -E '^(AssertionError|FAILED)'
+    caption: "On main, the two accent tests fail."
+    say: "On main, the two tests with accented titles fail."
+    callout: {find: "FAILED (failures=2)", label: "Bug reproduced on main"}
+
+  - clear: true
+    run: python3 slugkit.py < titles.txt
+    caption: "Accented letters are dropped, so slugs break apart."
+    say: "Accented letters get dropped, so the slugs break apart."
+    callout: {find: "cr-me-br-l-e", label: "Should be creme-brulee"}
+
+  - clear: true
+    run: git switch -q fix/slugify-accents && git diff -U1 main
+    caption: "The fix: fold accents to ASCII before slugging."
+    say: "The fix folds accents to plain ASCII before slugging."
+    callout: {find: "unicodedata.normalize", label: "The fix"}
+
+  - clear: true
+    run: python3 -m unittest -q && python3 slugkit.py < titles.txt
+    caption: "All four tests pass, and real titles now slug cleanly."
+    say: "Now all four tests pass, and real titles slug cleanly."
+    callout:
+      - {find: "OK", label: "4 / 4 tests pass"}
+      - {find: "creme-brulee", label: "Fixed"}
