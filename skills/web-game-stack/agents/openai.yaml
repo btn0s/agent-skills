@@ -1,0 +1,4 @@
+interface:
+  display_name: "Web Game Stack"
+  short_description: "Scaffold ALS and Blacksite web games"
+  default_prompt: "Use $web-game-stack to choose a game profile, scaffold it, add the systems I need, and run its gate."

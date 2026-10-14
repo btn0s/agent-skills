@@ -1,0 +1,7 @@
+# Colyseus netcode
+
+Use Colyseus rooms for match admission, replication, and events. A workable starting cadence is 60 Hz local simulation, 30 Hz server authority ticks, and roughly 25 Hz movement snapshots and patches. Tune from packet and playtest evidence. Client ALS owns immediate movement; remote actors interpolate a buffered snapshot about 100 ms behind live time. Keep sequence numbers and timestamps so stale snapshots cannot rewind actors.
+
+The server owns teams, health, damage, respawn, score, weapon grants, and hit acceptance. Validate a shot's weapon, cadence, ammunition, owner position and view direction. Rewind historical target capsules to the shot timestamp within a bounded latency window, raycast or sweep from an origin inside the shooter's capsule, and reject impossible or obstructed hits. Record accepted outcomes as authority events. Clients may predict muzzle VFX and ammunition display, then reconcile accepted fire; do not predict damage as truth.
+
+Movement packets carry position, velocity, stance, aim, overlay, and monotonic sequence. Enforce speed and teleport bounds on the server. For games that need tighter competitive feel, move toward input sequence replay and server correction; preserve deterministic fixed-step movement and a local input history before adding reconciliation. Keep the transport adapter separate from the synchronous combat core. Every room message uses a shared schema at the boundary.
